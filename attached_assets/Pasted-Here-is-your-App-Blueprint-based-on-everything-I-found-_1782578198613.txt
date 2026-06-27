@@ -1,0 +1,106 @@
+Here is your App Blueprint based on everything I found in the codebase:
+
+FinTrack — App Blueprint
+1. App Name & Purpose
+Name: FinTrack
+
+Purpose: A personal finance management web app that helps users track spending, manage budgets, monitor bills, and build better money habits — all in one place.
+
+2. Target Users
+Individuals who want visibility into their daily spending
+People trying to stick to a monthly budget
+Anyone managing recurring bills and subscriptions
+Users motivated by progress tracking and goal-setting
+3. Core Features
+Feature	Description
+Dashboard	Overview of spending, account balances, and recent activity
+Transactions	View, search, and categorize income/expenses
+Budget	Set monthly limits per category and track usage
+Bills	Track recurring bills, due dates, and payment status
+Accounts	View linked financial accounts and balances
+Insights	Charts and summaries of spending patterns over time
+Settings	Profile management, theme, notifications
+4. Optional Future Features (Post-MVP)
+Plaid bank sync (automatic transaction import)
+AI spending coach and chat assistant
+Investment portfolio tracking
+Credit score monitoring
+Savings goals and optimization
+Social accountability groups and challenges
+Gamification (XP, levels, avatar, achievements)
+Side hustle income tracker
+Behavioral finance analysis
+3D avatar customization (Ready Player Me)
+5. Frontend Pages / Screens
+Route	Page	Purpose
+/	Dashboard	Summary cards, charts, recent transactions
+/transactions	Transactions	Full list with search/filter/category
+/budgets	Budget	Budget categories with progress bars
+/bills	Bills	Upcoming and overdue bills list
+/accounts	Accounts	Account balances and linked banks
+/insights	Insights	Spending charts and trends
+/settings	Settings	User profile and preferences
+6. Backend API Endpoints
+Method	Endpoint	Purpose
+GET	/api/health	Server health check
+GET	/api/transactions	Fetch all transactions
+POST	/api/transactions	Add a transaction
+PUT	/api/transactions/:id	Update a transaction
+DELETE	/api/transactions/:id	Delete a transaction
+GET	/api/budgets	Fetch all budget categories
+POST	/api/budgets	Create a budget category
+PUT	/api/budgets/:id	Update a budget
+GET	/api/bills	Fetch all bills
+POST	/api/bills	Add a bill
+PUT	/api/bills/:id	Update a bill
+DELETE	/api/bills/:id	Delete a bill
+GET	/api/accounts	Fetch all accounts
+GET	/api/insights/spending	Spending breakdown by category
+GET	/api/insights/trends	Monthly spending trend data
+7. Database Structure
+Using a simple structure — can be JSON files locally in MVP, then migrated to PostgreSQL or Firebase later.
+
+transactions
+
+id, date, description, amount, category, type (income/expense), account_id
+
+budgets
+
+id, category, monthly_limit, current_spent, month, year
+
+bills
+
+id, name, amount, due_date, frequency, category, status (paid/unpaid/overdue)
+
+accounts
+
+id, name, type (checking/savings/credit), balance, institution
+
+users
+
+id, name, email, avatar_url, created_at
+
+8. External APIs Needed
+API	MVP?	Purpose
+None for MVP	—	MVP uses manually entered data
+Plaid	Post-MVP	Auto-import bank transactions
+OpenAI	Post-MVP	AI coaching and spending insights
+Firebase	Post-MVP	Cloud auth and real-time data
+SendGrid	Post-MVP	Bill reminders and alerts by email
+9. Authentication Needs
+MVP: No authentication. Single-user local session. Data persists in the backend/database.
+
+Post-MVP: Email/password login via Firebase Auth, with user-specific data isolation.
+
+10. Simplest MVP Version
+The MVP should do exactly this and nothing more:
+
+A React + Vite frontend with a sidebar layout
+7 pages: Dashboard, Transactions, Budget, Bills, Accounts, Insights, Settings
+A Node.js + Express backend with a simple JSON file as a database (no setup required)
+Users can manually add transactions, bills, and budgets
+The Dashboard shows totals — total income, total expenses, and budget progress this month
+Insights shows a bar chart of spending by category
+No login, no Plaid, no AI, no social features
+This gives us a working, navigable, data-driven app that we can actually run and test — before layering in the advanced features one at a time.
+

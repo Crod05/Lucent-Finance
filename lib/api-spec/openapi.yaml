@@ -3,13 +3,23 @@ info:
   # Do not change the title, if the title changes, the import paths will be broken
   title: Api
   version: 0.1.0
-  description: API specification
+  description: Lucent Finance API
 servers:
   - url: /api
     description: Base API path
 tags:
   - name: health
     description: Health operations
+  - name: transactions
+    description: Transaction operations
+  - name: budgets
+    description: Budget operations
+  - name: bills
+    description: Bill operations
+  - name: accounts
+    description: Account operations
+  - name: insights
+    description: Insights and analytics
 paths:
   /healthz:
     get:
@@ -24,6 +34,401 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+
+  /transactions:
+    get:
+      operationId: listTransactions
+      tags: [transactions]
+      summary: List all transactions
+      responses:
+        "200":
+          description: List of transactions
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Transaction"
+    post:
+      operationId: createTransaction
+      tags: [transactions]
+      summary: Create a transaction
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+
+  /transactions/{id}:
+    get:
+      operationId: getTransaction
+      tags: [transactions]
+      summary: Get a transaction by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Not found
+    patch:
+      operationId: updateTransaction
+      tags: [transactions]
+      summary: Update a transaction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/TransactionUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Transaction"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteTransaction
+      tags: [transactions]
+      summary: Delete a transaction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /budgets:
+    get:
+      operationId: listBudgets
+      tags: [budgets]
+      summary: List all budgets
+      responses:
+        "200":
+          description: List of budgets
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Budget"
+    post:
+      operationId: createBudget
+      tags: [budgets]
+      summary: Create a budget
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BudgetInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Budget"
+
+  /budgets/{id}:
+    patch:
+      operationId: updateBudget
+      tags: [budgets]
+      summary: Update a budget
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BudgetUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Budget"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteBudget
+      tags: [budgets]
+      summary: Delete a budget
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /bills:
+    get:
+      operationId: listBills
+      tags: [bills]
+      summary: List all bills
+      responses:
+        "200":
+          description: List of bills
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Bill"
+    post:
+      operationId: createBill
+      tags: [bills]
+      summary: Create a bill
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bill"
+
+  /bills/{id}:
+    patch:
+      operationId: updateBill
+      tags: [bills]
+      summary: Update a bill
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BillUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bill"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteBill
+      tags: [bills]
+      summary: Delete a bill
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /bills/{id}/pay:
+    patch:
+      operationId: markBillPaid
+      tags: [bills]
+      summary: Mark a bill as paid
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "200":
+          description: Bill marked paid
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Bill"
+        "404":
+          description: Not found
+
+  /accounts:
+    get:
+      operationId: listAccounts
+      tags: [accounts]
+      summary: List all accounts
+      responses:
+        "200":
+          description: List of accounts
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Account"
+    post:
+      operationId: createAccount
+      tags: [accounts]
+      summary: Create an account
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountInput"
+      responses:
+        "201":
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+
+  /accounts/{id}:
+    patch:
+      operationId: updateAccount
+      tags: [accounts]
+      summary: Update an account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AccountUpdate"
+      responses:
+        "200":
+          description: Updated
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Account"
+        "404":
+          description: Not found
+    delete:
+      operationId: deleteAccount
+      tags: [accounts]
+      summary: Delete an account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: integer
+      responses:
+        "204":
+          description: Deleted
+        "404":
+          description: Not found
+
+  /insights/summary:
+    get:
+      operationId: getInsightsSummary
+      tags: [insights]
+      summary: Get dashboard summary totals
+      responses:
+        "200":
+          description: Financial summary
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/InsightsSummary"
+
+  /insights/spending:
+    get:
+      operationId: getSpendingByCategory
+      tags: [insights]
+      summary: Get spending breakdown by category
+      responses:
+        "200":
+          description: Spending by category
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/CategorySpend"
+
+  /insights/trends:
+    get:
+      operationId: getMonthlyTrends
+      tags: [insights]
+      summary: Get monthly spending trends
+      responses:
+        "200":
+          description: Monthly trend data
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/MonthlyTrend"
+
+  /insights/upcoming-bills:
+    get:
+      operationId: getUpcomingBills
+      tags: [insights]
+      summary: Get upcoming bills in the next 30 days
+      responses:
+        "200":
+          description: Upcoming bills
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/Bill"
+
 components:
   schemas:
     HealthStatus:
@@ -34,3 +439,287 @@ components:
       required:
         - status
 
+    Transaction:
+      type: object
+      required: [id, date, description, amount, category, type, createdAt]
+      properties:
+        id:
+          type: integer
+        date:
+          type: string
+          format: date
+        description:
+          type: string
+        amount:
+          type: number
+        category:
+          type: string
+        type:
+          type: string
+          enum: [income, expense]
+        accountId:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    TransactionInput:
+      type: object
+      required: [date, description, amount, category, type]
+      properties:
+        date:
+          type: string
+          format: date
+        description:
+          type: string
+          minLength: 1
+        amount:
+          type: number
+        category:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          enum: [income, expense]
+        accountId:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+
+    TransactionUpdate:
+      type: object
+      properties:
+        date:
+          type: string
+          format: date
+        description:
+          type: string
+          minLength: 1
+        amount:
+          type: number
+        category:
+          type: string
+        type:
+          type: string
+          enum: [income, expense]
+        accountId:
+          type: ["integer", "null"]
+        notes:
+          type: ["string", "null"]
+
+    Budget:
+      type: object
+      required: [id, category, monthlyLimit, currentSpent, month, year, createdAt]
+      properties:
+        id:
+          type: integer
+        category:
+          type: string
+        monthlyLimit:
+          type: number
+        currentSpent:
+          type: number
+        month:
+          type: integer
+        year:
+          type: integer
+        createdAt:
+          type: string
+          format: date-time
+
+    BudgetInput:
+      type: object
+      required: [category, monthlyLimit, month, year]
+      properties:
+        category:
+          type: string
+          minLength: 1
+        monthlyLimit:
+          type: number
+        month:
+          type: integer
+        year:
+          type: integer
+
+    BudgetUpdate:
+      type: object
+      properties:
+        category:
+          type: string
+        monthlyLimit:
+          type: number
+        month:
+          type: integer
+        year:
+          type: integer
+
+    Bill:
+      type: object
+      required: [id, name, amount, dueDate, frequency, category, status, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        amount:
+          type: number
+        dueDate:
+          type: string
+          format: date
+        frequency:
+          type: string
+          enum: [weekly, monthly, quarterly, yearly, once]
+        category:
+          type: string
+        status:
+          type: string
+          enum: [paid, unpaid, overdue]
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    BillInput:
+      type: object
+      required: [name, amount, dueDate, frequency, category]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        amount:
+          type: number
+        dueDate:
+          type: string
+          format: date
+        frequency:
+          type: string
+          enum: [weekly, monthly, quarterly, yearly, once]
+        category:
+          type: string
+          minLength: 1
+        status:
+          type: string
+          enum: [paid, unpaid, overdue]
+        notes:
+          type: ["string", "null"]
+
+    BillUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        amount:
+          type: number
+        dueDate:
+          type: string
+          format: date
+        frequency:
+          type: string
+          enum: [weekly, monthly, quarterly, yearly, once]
+        category:
+          type: string
+        status:
+          type: string
+          enum: [paid, unpaid, overdue]
+        notes:
+          type: ["string", "null"]
+
+    Account:
+      type: object
+      required: [id, name, type, balance, institution, createdAt]
+      properties:
+        id:
+          type: integer
+        name:
+          type: string
+        type:
+          type: string
+          enum: [checking, savings, credit, investment, other]
+        balance:
+          type: number
+        institution:
+          type: string
+        notes:
+          type: ["string", "null"]
+        createdAt:
+          type: string
+          format: date-time
+
+    AccountInput:
+      type: object
+      required: [name, type, balance, institution]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        type:
+          type: string
+          enum: [checking, savings, credit, investment, other]
+        balance:
+          type: number
+        institution:
+          type: string
+          minLength: 1
+        notes:
+          type: ["string", "null"]
+
+    AccountUpdate:
+      type: object
+      properties:
+        name:
+          type: string
+        type:
+          type: string
+          enum: [checking, savings, credit, investment, other]
+        balance:
+          type: number
+        institution:
+          type: string
+        notes:
+          type: ["string", "null"]
+
+    InsightsSummary:
+      type: object
+      required: [totalIncome, totalExpenses, netSavings, totalBalance, budgetUsagePercent, upcomingBillsTotal, billsDueThisWeek]
+      properties:
+        totalIncome:
+          type: number
+        totalExpenses:
+          type: number
+        netSavings:
+          type: number
+        totalBalance:
+          type: number
+        budgetUsagePercent:
+          type: number
+        upcomingBillsTotal:
+          type: number
+        billsDueThisWeek:
+          type: integer
+
+    CategorySpend:
+      type: object
+      required: [category, amount, percentage]
+      properties:
+        category:
+          type: string
+        amount:
+          type: number
+        percentage:
+          type: number
+
+    MonthlyTrend:
+      type: object
+      required: [month, year, income, expenses]
+      properties:
+        month:
+          type: integer
+        year:
+          type: integer
+        income:
+          type: number
+        expenses:
+          type: number
