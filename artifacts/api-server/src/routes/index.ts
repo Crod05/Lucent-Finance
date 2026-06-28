@@ -5,6 +5,7 @@ import budgetsRouter from "./budgets";
 import billsRouter from "./bills";
 import accountsRouter from "./accounts";
 import insightsRouter from "./insights";
+import gamificationRouter from "./gamification";
 
 const router: IRouter = Router();
 
@@ -14,5 +15,6 @@ router.use(budgetsRouter);
 router.use(billsRouter);
 router.use(accountsRouter);
 router.use(insightsRouter);
+router.use(gamificationRouter);
 
 export default router;

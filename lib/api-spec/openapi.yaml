@@ -20,6 +20,8 @@ tags:
     description: Account operations
   - name: insights
     description: Insights and analytics
+  - name: gamification
+    description: XP, levels, missions, streaks, and achievements
 paths:
   /healthz:
     get:
@@ -429,6 +431,75 @@ paths:
                 items:
                   $ref: "#/components/schemas/Bill"
 
+  /gamification/progress:
+    get:
+      operationId: getProgress
+      tags: [gamification]
+      summary: Get user XP, level, and streak info
+      responses:
+        "200":
+          description: User progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProgress"
+
+  /gamification/missions/today:
+    get:
+      operationId: getTodayMission
+      tags: [gamification]
+      summary: Get or generate today's daily mission
+      responses:
+        "200":
+          description: Today's mission
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyMission"
+
+  /gamification/missions/today/complete:
+    patch:
+      operationId: completeTodayMission
+      tags: [gamification]
+      summary: Mark today's mission as completed and award XP
+      responses:
+        "200":
+          description: XP event result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/XpEvent"
+        "400":
+          description: Mission already completed or not applicable
+
+  /gamification/achievements:
+    get:
+      operationId: listAchievements
+      tags: [gamification]
+      summary: List all achievements (earned and locked)
+      responses:
+        "200":
+          description: Achievements list
+          content:
+            application/json:
+              schema:
+                type: array
+                items:
+                  $ref: "#/components/schemas/AchievementStatus"
+
+  /gamification/scorecard:
+    get:
+      operationId: getScorecard
+      tags: [gamification]
+      summary: Get the financial scorecard
+      responses:
+        "200":
+          description: Financial scorecard
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Scorecard"
+
 components:
   schemas:
     HealthStatus:
@@ -723,3 +794,122 @@ components:
           type: number
         expenses:
           type: number
+
+    UserProgress:
+      type: object
+      required: [userId, totalXp, level, currentStreak, longestStreak, xpToNextLevel, levelProgress]
+      properties:
+        userId:
+          type: string
+        totalXp:
+          type: integer
+        level:
+          type: integer
+        currentStreak:
+          type: integer
+        longestStreak:
+          type: integer
+        lastMissionDate:
+          type: ["string", "null"]
+        xpToNextLevel:
+          type: integer
+        levelProgress:
+          type: number
+
+    DailyMission:
+      type: object
+      required: [id, userId, date, missionType, title, description, xpReward, status]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        date:
+          type: string
+        missionType:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        xpReward:
+          type: integer
+        status:
+          type: string
+          enum: [pending, completed]
+        completedAt:
+          type: ["string", "null"]
+
+    Achievement:
+      type: object
+      required: [id, userId, badgeKey, name, description, earnedAt]
+      properties:
+        id:
+          type: integer
+        userId:
+          type: string
+        badgeKey:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        earnedAt:
+          type: string
+
+    ScorecardItem:
+      type: object
+      required: [label, score, maxScore, status]
+      properties:
+        label:
+          type: string
+        score:
+          type: number
+        maxScore:
+          type: number
+        status:
+          type: string
+          enum: [good, warning, danger]
+
+    Scorecard:
+      type: object
+      required: [budgetHealth, billsStatus, spendingAwareness, habitStreak]
+      properties:
+        budgetHealth:
+          $ref: "#/components/schemas/ScorecardItem"
+        billsStatus:
+          $ref: "#/components/schemas/ScorecardItem"
+        spendingAwareness:
+          $ref: "#/components/schemas/ScorecardItem"
+        habitStreak:
+          $ref: "#/components/schemas/ScorecardItem"
+
+    XpEvent:
+      type: object
+      required: [xpAwarded, newTotalXp, newLevel, leveledUp]
+      properties:
+        xpAwarded:
+          type: integer
+        newTotalXp:
+          type: integer
+        newLevel:
+          type: integer
+        leveledUp:
+          type: boolean
+
+    AchievementStatus:
+      type: object
+      required: [badgeKey, name, description, earned, icon]
+      properties:
+        badgeKey:
+          type: string
+        name:
+          type: string
+        description:
+          type: string
+        earned:
+          type: boolean
+        icon:
+          type: string
+        earnedAt:
+          type: ["string", "null"]

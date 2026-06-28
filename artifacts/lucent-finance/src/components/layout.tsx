@@ -6,7 +6,8 @@ import {
   CreditCard, 
   Landmark, 
   PieChart, 
-  Settings 
+  Settings,
+  Trophy
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 
@@ -17,6 +18,7 @@ const navigation = [
   { name: "Bills", href: "/bills", icon: CreditCard },
   { name: "Accounts", href: "/accounts", icon: Landmark },
   { name: "Insights", href: "/insights", icon: PieChart },
+  { name: "Progress", href: "/progress", icon: Trophy },
   { name: "Settings", href: "/settings", icon: Settings },
 ];
 

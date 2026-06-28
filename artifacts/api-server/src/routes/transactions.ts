@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, transactionsTable } from "@workspace/db";
+import { awardXp, grantAchievementIfNew } from "../lib/xp";
 import {
   ListTransactionsResponse,
   CreateTransactionBody,
@@ -38,6 +39,15 @@ router.post("/transactions", async (req, res): Promise<void> => {
     .insert(transactionsTable)
     .values({ ...parsed.data, date: dateStr, amount: String(parsed.data.amount) })
     .returning();
+
+  // Award XP for logging a transaction; grant first-transaction achievement if new
+  await awardXp(10);
+  await grantAchievementIfNew(
+    "first_transaction",
+    "First Transaction",
+    "Logged your very first transaction"
+  );
+
   res.status(201).json(CreateTransactionResponse.parse({ ...row, amount: Number(row.amount), createdAt: row.createdAt.toISOString() }));
 });
 

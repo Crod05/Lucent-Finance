@@ -283,3 +283,85 @@ export interface MonthlyTrend {
   expenses: number;
 }
 
+export interface UserProgress {
+  userId: string;
+  totalXp: number;
+  level: number;
+  currentStreak: number;
+  longestStreak: number;
+  /** @nullable */
+  lastMissionDate?: string | null;
+  xpToNextLevel: number;
+  levelProgress: number;
+}
+
+export type DailyMissionStatus = typeof DailyMissionStatus[keyof typeof DailyMissionStatus];
+
+
+export const DailyMissionStatus = {
+  pending: 'pending',
+  completed: 'completed',
+} as const;
+
+export interface DailyMission {
+  id: number;
+  userId: string;
+  date: string;
+  missionType: string;
+  title: string;
+  description: string;
+  xpReward: number;
+  status: DailyMissionStatus;
+  /** @nullable */
+  completedAt?: string | null;
+}
+
+export interface Achievement {
+  id: number;
+  userId: string;
+  badgeKey: string;
+  name: string;
+  description: string;
+  earnedAt: string;
+}
+
+export type ScorecardItemStatus = typeof ScorecardItemStatus[keyof typeof ScorecardItemStatus];
+
+
+export const ScorecardItemStatus = {
+  good: 'good',
+  warning: 'warning',
+  danger: 'danger',
+} as const;
+
+export interface ScorecardItem {
+  label: string;
+  score: number;
+  maxScore: number;
+  status: ScorecardItemStatus;
+}
+
+export interface Scorecard {
+  budgetHealth: ScorecardItem;
+  billsStatus: ScorecardItem;
+  spendingAwareness: ScorecardItem;
+  habitStreak: ScorecardItem;
+}
+
+export interface XpEvent {
+  xpAwarded: number;
+  newTotalXp: number;
+  newLevel: number;
+  leveledUp: boolean;
+}
+
+export interface AchievementStatus {
+  badgeKey: string;
+  name: string;
+  description: string;
+  earned: boolean;
+  icon: string;
+  /** @nullable */
+  earnedAt?: string | null;
+}
+

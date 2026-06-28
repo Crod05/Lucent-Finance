@@ -12,6 +12,7 @@ import Budgets from "@/pages/budgets";
 import Bills from "@/pages/bills";
 import Accounts from "@/pages/accounts";
 import Insights from "@/pages/insights";
+import Progress from "@/pages/progress";
 import Settings from "@/pages/settings";
 
 const queryClient = new QueryClient({
@@ -33,6 +34,7 @@ function Router() {
         <Route path="/bills" component={Bills} />
         <Route path="/accounts" component={Accounts} />
         <Route path="/insights" component={Insights} />
+        <Route path="/progress" component={Progress} />
         <Route path="/settings" component={Settings} />
         <Route component={NotFound} />
       </Switch>

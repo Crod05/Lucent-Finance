@@ -1,15 +1,50 @@
-import { useGetInsightsSummary, useListTransactions, useGetUpcomingBills, useGetSpendingByCategory } from "@workspace/api-client-react";
+import { 
+  useGetInsightsSummary, 
+  useListTransactions, 
+  useGetUpcomingBills, 
+  useGetSpendingByCategory,
+  useGetProgress,
+  useGetTodayMission,
+  useCompleteTodayMission,
+  useGetScorecard,
+  getGetTodayMissionQueryKey,
+  getGetProgressQueryKey
+} from "@workspace/api-client-react";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { ArrowUpRight, ArrowDownRight, Wallet, CreditCard, PiggyBank } from "lucide-react";
+import { ArrowUpRight, ArrowDownRight, Wallet, CreditCard, PiggyBank, Flame, Trophy, Target, CheckCircle2, TrendingUp } from "lucide-react";
 import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Progress } from "@/components/ui/progress";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 export default function Dashboard() {
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
+
   const { data: summary, isLoading: loadingSummary } = useGetInsightsSummary();
   const { data: transactions, isLoading: loadingTransactions } = useListTransactions();
   const { data: bills, isLoading: loadingBills } = useGetUpcomingBills();
   const { data: spending, isLoading: loadingSpending } = useGetSpendingByCategory();
+
+  const { data: progress, isLoading: loadingProgress } = useGetProgress();
+  const { data: mission, isLoading: loadingMission } = useGetTodayMission();
+  const { data: scorecard, isLoading: loadingScorecard } = useGetScorecard();
+
+  const completeMission = useCompleteTodayMission({
+    mutation: {
+      onSuccess: () => {
+        queryClient.invalidateQueries({ queryKey: getGetTodayMissionQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetProgressQueryKey() });
+        toast({
+          title: "Mission Completed!",
+          description: `You earned ${mission?.xpReward || 0} XP.`,
+        });
+      }
+    }
+  });
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -17,6 +52,120 @@ export default function Dashboard() {
         <h1 className="text-4xl font-serif text-foreground font-semibold">Good morning</h1>
         <p className="text-muted-foreground mt-2">Here's your financial overview for today.</p>
       </header>
+
+      {/* Gamification Layer */}
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        {/* Daily Mission */}
+        <Card className="border-none shadow-sm bg-primary/5 border border-primary/20 relative overflow-hidden">
+          <div className="absolute top-0 right-0 -mt-4 -mr-4 w-24 h-24 bg-primary/10 rounded-full blur-xl"></div>
+          <CardContent className="p-6">
+            <div className="flex items-center space-x-2 mb-4 text-primary">
+              <Target className="w-5 h-5" />
+              <h3 className="font-semibold">Daily Mission</h3>
+            </div>
+            
+            {loadingMission ? (
+               <div className="space-y-3">
+                 <Skeleton className="h-6 w-3/4" />
+                 <Skeleton className="h-4 w-full" />
+                 <Skeleton className="h-10 w-full mt-4" />
+               </div>
+            ) : mission ? (
+              <div className="space-y-4">
+                <div>
+                  <div className="flex justify-between items-start">
+                    <h4 className="font-bold text-lg">{mission.title}</h4>
+                    <span className="inline-flex items-center px-2 py-1 rounded text-xs font-bold bg-primary text-primary-foreground shadow-sm">
+                      +{mission.xpReward} XP
+                    </span>
+                  </div>
+                  <p className="text-sm text-muted-foreground mt-1">{mission.description}</p>
+                </div>
+                
+                {mission.status === 'completed' ? (
+                  <div className="flex items-center justify-center p-2.5 bg-green-500/10 text-green-600 rounded-md font-medium border border-green-500/20">
+                    <CheckCircle2 className="w-5 h-5 mr-2" />
+                    Mission Completed
+                  </div>
+                ) : (
+                  <Button 
+                    className="w-full font-semibold shadow-sm"
+                    onClick={() => completeMission.mutate({})}
+                    disabled={completeMission.isPending}
+                  >
+                    {completeMission.isPending ? "Completing..." : "Complete Mission"}
+                  </Button>
+                )}
+              </div>
+            ) : (
+              <p className="text-sm text-muted-foreground">No mission available today.</p>
+            )}
+          </CardContent>
+        </Card>
+
+        {/* Progress & Streak */}
+        <Card className="border-none shadow-sm bg-card/50">
+          <CardContent className="p-6 h-full flex flex-col justify-center">
+            {loadingProgress ? (
+              <div className="space-y-4">
+                <div className="flex justify-between"><Skeleton className="h-6 w-20"/><Skeleton className="h-6 w-20"/></div>
+                <Skeleton className="h-4 w-full" />
+                <Skeleton className="h-4 w-32" />
+              </div>
+            ) : progress ? (
+              <div className="space-y-5">
+                <div className="flex justify-between items-end">
+                  <div>
+                    <p className="text-sm text-muted-foreground mb-1">Current Level</p>
+                    <div className="flex items-center space-x-2">
+                      <Trophy className="w-5 h-5 text-primary" />
+                      <span className="text-2xl font-serif font-bold text-foreground">Level {progress.level}</span>
+                    </div>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-sm text-muted-foreground mb-1">Streak</p>
+                    <div className="flex items-center space-x-1 text-orange-500">
+                      <Flame className="w-5 h-5" />
+                      <span className="text-xl font-bold">{progress.currentStreak}</span>
+                    </div>
+                  </div>
+                </div>
+                
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-medium text-muted-foreground">
+                    <span>{progress.totalXp} XP</span>
+                    <span>{progress.xpToNextLevel} to Next</span>
+                  </div>
+                  <Progress value={progress.levelProgress} className="h-2" />
+                </div>
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+
+        {/* Scorecard */}
+        <Card className="border-none shadow-sm bg-card/50">
+          <CardContent className="p-6 h-full flex flex-col">
+            <h3 className="font-semibold flex items-center mb-4">
+              <TrendingUp className="w-4 h-4 mr-2 text-muted-foreground" />
+              Financial Scorecard
+            </h3>
+            
+            {loadingScorecard ? (
+               <div className="grid grid-cols-2 gap-4 flex-1">
+                 {[1,2,3,4].map(i => <Skeleton key={i} className="h-full w-full rounded-lg" />)}
+               </div>
+            ) : scorecard ? (
+              <div className="grid grid-cols-2 gap-3 flex-1">
+                <ScorecardItem data={scorecard.budgetHealth} />
+                <ScorecardItem data={scorecard.billsStatus} />
+                <ScorecardItem data={scorecard.spendingAwareness} />
+                <ScorecardItem data={scorecard.habitStreak} />
+              </div>
+            ) : null}
+          </CardContent>
+        </Card>
+      </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6">
         <MetricCard
@@ -167,5 +316,38 @@ function MetricCard({ title, amount, icon: Icon, loading, trend, className }: an
         </div>
       </CardContent>
     </Card>
+  );
+}
+
+function ScorecardItem({ data }: { data: any }) {
+  const statusColors: Record<string, string> = {
+    good: 'bg-green-500 text-white',
+    warning: 'bg-amber-500 text-white',
+    danger: 'bg-red-500 text-white',
+  };
+  
+  const bgColors: Record<string, string> = {
+    good: 'bg-green-500/10 border-green-500/20 text-green-700 dark:text-green-400',
+    warning: 'bg-amber-500/10 border-amber-500/20 text-amber-700 dark:text-amber-400',
+    danger: 'bg-red-500/10 border-red-500/20 text-red-700 dark:text-red-400',
+  };
+
+  const percent = Math.min(100, Math.max(0, (data.score / data.maxScore) * 100));
+
+  return (
+    <div className={`p-3 rounded-lg border ${bgColors[data.status]} flex flex-col justify-between`}>
+      <p className="text-xs font-semibold leading-tight">{data.label}</p>
+      <div className="mt-2">
+        <div className="flex justify-between text-[10px] font-medium mb-1 opacity-80">
+          <span>{data.score}/{data.maxScore}</span>
+        </div>
+        <div className="w-full bg-background/50 rounded-full h-1.5 overflow-hidden">
+          <div 
+            className={`h-full ${statusColors[data.status]}`} 
+            style={{ width: `${percent}%` }}
+          />
+        </div>
+      </div>
+    </div>
   );
 }

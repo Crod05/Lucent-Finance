@@ -439,3 +439,90 @@ export const GetUpcomingBillsResponseItem = zod.object({
 export const GetUpcomingBillsResponse = zod.array(GetUpcomingBillsResponseItem)
 
 
+/**
+ * @summary Get user XP, level, and streak info
+ */
+export const GetProgressResponse = zod.object({
+  "userId": zod.string(),
+  "totalXp": zod.number(),
+  "level": zod.number(),
+  "currentStreak": zod.number(),
+  "longestStreak": zod.number(),
+  "lastMissionDate": zod.string().nullish(),
+  "xpToNextLevel": zod.number(),
+  "levelProgress": zod.number()
+})
+
+
+/**
+ * @summary Get or generate today's daily mission
+ */
+export const GetTodayMissionResponse = zod.object({
+  "id": zod.number(),
+  "userId": zod.string(),
+  "date": zod.string(),
+  "missionType": zod.string(),
+  "title": zod.string(),
+  "description": zod.string(),
+  "xpReward": zod.number(),
+  "status": zod.enum(['pending', 'completed']),
+  "completedAt": zod.string().nullish()
+})
+
+
+/**
+ * @summary Mark today's mission as completed and award XP
+ */
+export const CompleteTodayMissionResponse = zod.object({
+  "xpAwarded": zod.number(),
+  "newTotalXp": zod.number(),
+  "newLevel": zod.number(),
+  "leveledUp": zod.boolean()
+})
+
+
+/**
+ * @summary List all achievements (earned and locked)
+ */
+export const ListAchievementsResponseItem = zod.object({
+  "badgeKey": zod.string(),
+  "name": zod.string(),
+  "description": zod.string(),
+  "earned": zod.boolean(),
+  "icon": zod.string(),
+  "earnedAt": zod.string().nullish()
+})
+export const ListAchievementsResponse = zod.array(ListAchievementsResponseItem)
+
+
+/**
+ * @summary Get the financial scorecard
+ */
+export const GetScorecardResponse = zod.object({
+  "budgetHealth": zod.object({
+  "label": zod.string(),
+  "score": zod.number(),
+  "maxScore": zod.number(),
+  "status": zod.enum(['good', 'warning', 'danger'])
+}),
+  "billsStatus": zod.object({
+  "label": zod.string(),
+  "score": zod.number(),
+  "maxScore": zod.number(),
+  "status": zod.enum(['good', 'warning', 'danger'])
+}),
+  "spendingAwareness": zod.object({
+  "label": zod.string(),
+  "score": zod.number(),
+  "maxScore": zod.number(),
+  "status": zod.enum(['good', 'warning', 'danger'])
+}),
+  "habitStreak": zod.object({
+  "label": zod.string(),
+  "score": zod.number(),
+  "maxScore": zod.number(),
+  "status": zod.enum(['good', 'warning', 'danger'])
+})
+})
+
+

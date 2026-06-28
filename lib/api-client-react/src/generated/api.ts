@@ -23,6 +23,7 @@ import type {
   Account,
   AccountInput,
   AccountUpdate,
+  AchievementStatus,
   Bill,
   BillInput,
   BillUpdate,
@@ -30,12 +31,16 @@ import type {
   BudgetInput,
   BudgetUpdate,
   CategorySpend,
+  DailyMission,
   HealthStatus,
   InsightsSummary,
   MonthlyTrend,
+  Scorecard,
   Transaction,
   TransactionInput,
-  TransactionUpdate
+  TransactionUpdate,
+  UserProgress,
+  XpEvent
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1738,6 +1743,384 @@ export function useGetUpcomingBills<TData = Awaited<ReturnType<typeof getUpcomin
  ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
 
   const queryOptions = getGetUpcomingBillsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetProgressUrl = () => {
+
+
+
+
+  return `/api/gamification/progress`
+}
+
+/**
+ * @summary Get user XP, level, and streak info
+ */
+export const getProgress = async ( options?: RequestInit): Promise<UserProgress> => {
+
+  return customFetch<UserProgress>(getGetProgressUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetProgressQueryKey = () => {
+    return [
+    `/api/gamification/progress`
+    ] as const;
+    }
+
+
+export const getGetProgressQueryOptions = <TData = Awaited<ReturnType<typeof getProgress>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProgress>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetProgressQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getProgress>>> = ({ signal }) => getProgress({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getProgress>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetProgressQueryResult = NonNullable<Awaited<ReturnType<typeof getProgress>>>
+export type GetProgressQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get user XP, level, and streak info
+ */
+
+export function useGetProgress<TData = Awaited<ReturnType<typeof getProgress>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getProgress>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetProgressQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetTodayMissionUrl = () => {
+
+
+
+
+  return `/api/gamification/missions/today`
+}
+
+/**
+ * @summary Get or generate today's daily mission
+ */
+export const getTodayMission = async ( options?: RequestInit): Promise<DailyMission> => {
+
+  return customFetch<DailyMission>(getGetTodayMissionUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetTodayMissionQueryKey = () => {
+    return [
+    `/api/gamification/missions/today`
+    ] as const;
+    }
+
+
+export const getGetTodayMissionQueryOptions = <TData = Awaited<ReturnType<typeof getTodayMission>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTodayMission>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetTodayMissionQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getTodayMission>>> = ({ signal }) => getTodayMission({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getTodayMission>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetTodayMissionQueryResult = NonNullable<Awaited<ReturnType<typeof getTodayMission>>>
+export type GetTodayMissionQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get or generate today's daily mission
+ */
+
+export function useGetTodayMission<TData = Awaited<ReturnType<typeof getTodayMission>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getTodayMission>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetTodayMissionQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCompleteTodayMissionUrl = () => {
+
+
+
+
+  return `/api/gamification/missions/today/complete`
+}
+
+/**
+ * @summary Mark today's mission as completed and award XP
+ */
+export const completeTodayMission = async ( options?: RequestInit): Promise<XpEvent> => {
+
+  return customFetch<XpEvent>(getCompleteTodayMissionUrl(),
+  {
+    ...options,
+    method: 'PATCH'
+
+
+  }
+);}
+
+
+
+
+export const getCompleteTodayMissionMutationOptions = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeTodayMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeTodayMission>>, TError,void, TContext> => {
+
+const mutationKey = ['completeTodayMission'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeTodayMission>>, void> = () => {
+
+
+          return  completeTodayMission(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteTodayMissionMutationResult = NonNullable<Awaited<ReturnType<typeof completeTodayMission>>>
+
+    export type CompleteTodayMissionMutationError = ErrorType<void>
+
+    /**
+ * @summary Mark today's mission as completed and award XP
+ */
+export const useCompleteTodayMission = <TError = ErrorType<void>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeTodayMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeTodayMission>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getCompleteTodayMissionMutationOptions(options));
+    }
+
+export const getListAchievementsUrl = () => {
+
+
+
+
+  return `/api/gamification/achievements`
+}
+
+/**
+ * @summary List all achievements (earned and locked)
+ */
+export const listAchievements = async ( options?: RequestInit): Promise<AchievementStatus[]> => {
+
+  return customFetch<AchievementStatus[]>(getListAchievementsUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getListAchievementsQueryKey = () => {
+    return [
+    `/api/gamification/achievements`
+    ] as const;
+    }
+
+
+export const getListAchievementsQueryOptions = <TData = Awaited<ReturnType<typeof listAchievements>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAchievements>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getListAchievementsQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof listAchievements>>> = ({ signal }) => listAchievements({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof listAchievements>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type ListAchievementsQueryResult = NonNullable<Awaited<ReturnType<typeof listAchievements>>>
+export type ListAchievementsQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary List all achievements (earned and locked)
+ */
+
+export function useListAchievements<TData = Awaited<ReturnType<typeof listAchievements>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof listAchievements>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getListAchievementsQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getGetScorecardUrl = () => {
+
+
+
+
+  return `/api/gamification/scorecard`
+}
+
+/**
+ * @summary Get the financial scorecard
+ */
+export const getScorecard = async ( options?: RequestInit): Promise<Scorecard> => {
+
+  return customFetch<Scorecard>(getGetScorecardUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetScorecardQueryKey = () => {
+    return [
+    `/api/gamification/scorecard`
+    ] as const;
+    }
+
+
+export const getGetScorecardQueryOptions = <TData = Awaited<ReturnType<typeof getScorecard>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScorecard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetScorecardQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getScorecard>>> = ({ signal }) => getScorecard({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getScorecard>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetScorecardQueryResult = NonNullable<Awaited<ReturnType<typeof getScorecard>>>
+export type GetScorecardQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the financial scorecard
+ */
+
+export function useGetScorecard<TData = Awaited<ReturnType<typeof getScorecard>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getScorecard>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetScorecardQueryOptions(options)
 
   const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
 
