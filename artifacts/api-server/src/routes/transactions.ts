@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, transactionsTable } from "@workspace/db";
@@ -15,6 +16,26 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
+
+/**
+ * Deterministic dedup fingerprint over (date, normalized description, amount,
+ * type, accountId). Must stay in sync with the SQL backfill expression used
+ * when the column was added.
+ */
+function computeFingerprint(input: {
+  date: string;
+  description: string;
+  amount: number | string;
+  type: string;
+  accountId: number | null | undefined;
+}): string {
+  const desc = input.description.trim().toLowerCase().replace(/\s+/g, " ");
+  const amt = Number(input.amount).toFixed(2);
+  const account = input.accountId == null ? "" : String(input.accountId);
+  return createHash("sha256")
+    .update(`${input.date}|${desc}|${amt}|${input.type}|${account}`)
+    .digest("hex");
+}
 
 router.get("/transactions", async (req, res): Promise<void> => {
   const rows = await db.select().from(transactionsTable).orderBy(transactionsTable.createdAt);
@@ -35,20 +56,34 @@ router.post("/transactions", async (req, res): Promise<void> => {
   const dateStr = typeof parsed.data.date === "string"
     ? parsed.data.date
     : (parsed.data.date as Date).toISOString().slice(0, 10);
+  const fingerprint = computeFingerprint({
+    date: dateStr,
+    description: parsed.data.description,
+    amount: parsed.data.amount,
+    type: parsed.data.type,
+    accountId: parsed.data.accountId,
+  });
+
   const [row] = await db
     .insert(transactionsTable)
-    .values({ ...parsed.data, date: dateStr, amount: String(parsed.data.amount) })
+    .values({ ...parsed.data, date: dateStr, amount: String(parsed.data.amount), fingerprint })
     .returning();
 
-  // Award XP for logging a transaction (idempotent per transaction row);
-  // grant first-transaction achievement if new; complete today's mission if it matches
-  await awardXpForEvent("transaction_created", String(row.id), 10);
-  await grantAchievementIfNew(
-    "first_transaction",
-    "First Transaction",
-    "Logged your very first transaction"
-  );
-  await completeMissionIfPending("log_transaction");
+  // Award XP keyed on the fingerprint (not the row id): xp_events has a
+  // unique (userId, eventType, sourceId) constraint, so re-logging an
+  // identical transaction — even concurrently — awards XP exactly once.
+  const award = await awardXpForEvent("transaction_created", fingerprint, 10);
+
+  if (award.xpAwarded > 0) {
+    // Genuinely new transaction: grant first-transaction achievement if new;
+    // complete today's mission if it matches.
+    await grantAchievementIfNew(
+      "first_transaction",
+      "First Transaction",
+      "Logged your very first transaction"
+    );
+    await completeMissionIfPending("log_transaction");
+  }
 
   res.status(201).json(CreateTransactionResponse.parse({ ...row, amount: Number(row.amount), createdAt: row.createdAt.toISOString() }));
 });
@@ -78,8 +113,24 @@ router.patch("/transactions/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
+  const [existing] = await db
+    .select()
+    .from(transactionsTable)
+    .where(eq(transactionsTable.id, params.data.id));
+  if (!existing) {
+    res.status(404).json({ error: "Transaction not found" });
+    return;
+  }
   const updateData: Record<string, unknown> = { ...parsed.data };
   if (parsed.data.amount !== undefined) updateData.amount = String(parsed.data.amount);
+  // Keep the dedup fingerprint in sync with the fields it derives from.
+  updateData.fingerprint = computeFingerprint({
+    date: (updateData.date as string | undefined) ?? existing.date,
+    description: parsed.data.description ?? existing.description,
+    amount: parsed.data.amount ?? existing.amount,
+    type: parsed.data.type ?? existing.type,
+    accountId: parsed.data.accountId !== undefined ? parsed.data.accountId : existing.accountId,
+  });
   const [row] = await db
     .update(transactionsTable)
     .set(updateData)

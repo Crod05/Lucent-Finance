@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq } from "drizzle-orm";
+import { and, eq, ne } from "drizzle-orm";
 import { db, billsTable } from "@workspace/db";
 import { awardXpForEvent, grantAchievementIfNew, completeMissionIfPending } from "../lib/xp";
 import {
@@ -90,13 +90,22 @@ router.patch("/bills/:id/pay", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
+  // Atomic transition: only unpaid bills flip to paid. If no row matches,
+  // the bill is either missing or already paid — no XP either way.
   const [row] = await db
     .update(billsTable)
     .set({ status: "paid" })
-    .where(eq(billsTable.id, params.data.id))
+    .where(and(eq(billsTable.id, params.data.id), ne(billsTable.status, "paid")))
     .returning();
+
   if (!row) {
-    res.status(404).json({ error: "Bill not found" });
+    const [existing] = await db.select().from(billsTable).where(eq(billsTable.id, params.data.id));
+    if (!existing) {
+      res.status(404).json({ error: "Bill not found" });
+      return;
+    }
+    // Already paid: return the bill as-is without awarding anything.
+    res.json(MarkBillPaidResponse.parse(mapBill(existing)));
     return;
   }
 

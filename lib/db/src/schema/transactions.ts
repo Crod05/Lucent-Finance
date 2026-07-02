@@ -11,9 +11,10 @@ export const transactionsTable = pgTable("transactions", {
   type: text("type").notNull(), // 'income' | 'expense'
   accountId: integer("account_id"),
   notes: text("notes"),
+  fingerprint: text("fingerprint"),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
 
-export const insertTransactionSchema = createInsertSchema(transactionsTable).omit({ id: true, createdAt: true });
+export const insertTransactionSchema = createInsertSchema(transactionsTable).omit({ id: true, createdAt: true, fingerprint: true });
 export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 export type Transaction = typeof transactionsTable.$inferSelect;

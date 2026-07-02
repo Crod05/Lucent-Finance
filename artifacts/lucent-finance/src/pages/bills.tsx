@@ -1,5 +1,14 @@
 import { useState } from "react";
-import { useListBills, useMarkBillPaid, useDeleteBill, getListBillsQueryKey } from "@workspace/api-client-react";
+import {
+  useListBills,
+  useMarkBillPaid,
+  useDeleteBill,
+  getListBillsQueryKey,
+  getGetProgressQueryKey,
+  getListAchievementsQueryKey,
+  getGetTodayMissionQueryKey,
+  getGetScorecardQueryKey,
+} from "@workspace/api-client-react";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -20,6 +29,12 @@ export default function Bills() {
   const handleMarkPaid = async (id: number) => {
     await markPaid.mutateAsync({ id });
     queryClient.invalidateQueries({ queryKey: getListBillsQueryKey() });
+    // Paying a bill can award XP, complete the daily mission, unlock
+    // achievements, and change the scorecard — refresh them all.
+    queryClient.invalidateQueries({ queryKey: getGetProgressQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getListAchievementsQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetTodayMissionQueryKey() });
+    queryClient.invalidateQueries({ queryKey: getGetScorecardQueryKey() });
   };
 
   const handleDelete = async (id: number) => {

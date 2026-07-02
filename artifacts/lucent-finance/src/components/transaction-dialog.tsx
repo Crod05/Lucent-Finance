@@ -2,7 +2,15 @@ import { useState, useEffect } from "react";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import * as z from "zod";
-import { useCreateTransaction, useUpdateTransaction, getListTransactionsQueryKey } from "@workspace/api-client-react";
+import {
+  useCreateTransaction,
+  useUpdateTransaction,
+  getListTransactionsQueryKey,
+  getGetProgressQueryKey,
+  getListAchievementsQueryKey,
+  getGetTodayMissionQueryKey,
+  getGetScorecardQueryKey,
+} from "@workspace/api-client-react";
 import { useQueryClient } from "@tanstack/react-query";
 import {
   Dialog,
@@ -87,6 +95,12 @@ export function TransactionDialog({
       } else {
         await createTx.mutateAsync({ data });
         toast({ title: "Transaction added successfully" });
+        // Creating a transaction can award XP, complete the daily mission,
+        // unlock achievements, and change the scorecard — refresh them all.
+        queryClient.invalidateQueries({ queryKey: getGetProgressQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getListAchievementsQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetTodayMissionQueryKey() });
+        queryClient.invalidateQueries({ queryKey: getGetScorecardQueryKey() });
       }
       queryClient.invalidateQueries({ queryKey: getListTransactionsQueryKey() });
       onOpenChange(false);
