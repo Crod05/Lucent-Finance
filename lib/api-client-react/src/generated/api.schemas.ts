@@ -348,13 +348,6 @@ export interface Scorecard {
   habitStreak: ScorecardItem;
 }
 
-export interface XpEvent {
-  xpAwarded: number;
-  newTotalXp: number;
-  newLevel: number;
-  leveledUp: boolean;
-}
-
 export interface AchievementStatus {
   badgeKey: string;
   name: string;

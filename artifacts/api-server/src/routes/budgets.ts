@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, budgetsTable } from "@workspace/db";
+import { completeMissionIfPending } from "../lib/xp";
 import {
   ListBudgetsResponse,
   CreateBudgetBody,
@@ -24,6 +25,11 @@ function mapBudget(r: typeof budgetsTable.$inferSelect) {
 
 router.get("/budgets", async (req, res): Promise<void> => {
   const rows = await db.select().from(budgetsTable).orderBy(budgetsTable.createdAt);
+
+  // Visiting the Budgets page (this list is only fetched there) is the
+  // evidence for the review_budget mission.
+  await completeMissionIfPending("review_budget");
+
   res.json(ListBudgetsResponse.parse(rows.map(mapBudget)));
 });
 

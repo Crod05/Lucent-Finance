@@ -39,8 +39,7 @@ import type {
   Transaction,
   TransactionInput,
   TransactionUpdate,
-  UserProgress,
-  XpEvent
+  UserProgress
 } from './api.schemas';
 
 import { customFetch } from '../custom-fetch';
@@ -1908,76 +1907,6 @@ export function useGetTodayMission<TData = Awaited<ReturnType<typeof getTodayMis
 
 
 
-
-export const getCompleteTodayMissionUrl = () => {
-
-
-
-
-  return `/api/gamification/missions/today/complete`
-}
-
-/**
- * @summary Mark today's mission as completed and award XP
- */
-export const completeTodayMission = async ( options?: RequestInit): Promise<XpEvent> => {
-
-  return customFetch<XpEvent>(getCompleteTodayMissionUrl(),
-  {
-    ...options,
-    method: 'PATCH'
-
-
-  }
-);}
-
-
-
-
-export const getCompleteTodayMissionMutationOptions = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeTodayMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
-): UseMutationOptions<Awaited<ReturnType<typeof completeTodayMission>>, TError,void, TContext> => {
-
-const mutationKey = ['completeTodayMission'];
-const {mutation: mutationOptions, request: requestOptions} = options ?
-      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
-      options
-      : {...options, mutation: {...options.mutation, mutationKey}}
-      : {mutation: { mutationKey, }, request: undefined};
-
-
-
-
-      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeTodayMission>>, void> = () => {
-
-
-          return  completeTodayMission(requestOptions)
-        }
-
-
-
-
-
-
-  return  { mutationFn, ...mutationOptions }}
-
-    export type CompleteTodayMissionMutationResult = NonNullable<Awaited<ReturnType<typeof completeTodayMission>>>
-
-    export type CompleteTodayMissionMutationError = ErrorType<void>
-
-    /**
- * @summary Mark today's mission as completed and award XP
- */
-export const useCompleteTodayMission = <TError = ErrorType<void>,
-    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeTodayMission>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
- ): UseMutationResult<
-        Awaited<ReturnType<typeof completeTodayMission>>,
-        TError,
-        void,
-        TContext
-      > => {
-      return useMutation(getCompleteTodayMissionMutationOptions(options));
-    }
 
 export const getListAchievementsUrl = () => {
 

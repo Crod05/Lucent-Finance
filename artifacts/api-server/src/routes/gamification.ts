@@ -12,14 +12,11 @@ import {
 import {
   GetProgressResponse,
   GetTodayMissionResponse,
-  CompleteTodayMissionResponse,
   ListAchievementsResponse,
   GetScorecardResponse,
 } from "@workspace/api-zod";
 import {
-  awardXp,
   getOrCreateProgress,
-  grantAchievementIfNew,
   computeLevel,
   computeXpToNextLevel,
   computeLevelProgress,
@@ -138,6 +135,8 @@ router.get("/gamification/missions/today", async (req, res): Promise<void> => {
   );
   const mission = MISSION_POOL[dayOfYear % MISSION_POOL.length];
 
+  // onConflictDoNothing + re-select handles concurrent requests racing to
+  // create today's mission (unique constraint on userId + date).
   const [created] = await db
     .insert(dailyMissionsTable)
     .values({
@@ -149,78 +148,29 @@ router.get("/gamification/missions/today", async (req, res): Promise<void> => {
       xpReward: mission.xpReward,
       status: "pending",
     })
+    .onConflictDoNothing()
     .returning();
+
+  const row =
+    created ??
+    (
+      await db
+        .select()
+        .from(dailyMissionsTable)
+        .where(
+          and(
+            eq(dailyMissionsTable.userId, DEFAULT_USER),
+            eq(dailyMissionsTable.date, today)
+          )
+        )
+    )[0];
 
   res.json(
     GetTodayMissionResponse.parse({
-      ...created,
-      completedAt: null,
+      ...row,
+      completedAt: row.completedAt ? row.completedAt.toISOString() : null,
     })
   );
-});
-
-router.patch("/gamification/missions/today/complete", async (req, res): Promise<void> => {
-  const today = todayStr();
-
-  const [mission] = await db
-    .select()
-    .from(dailyMissionsTable)
-    .where(
-      and(
-        eq(dailyMissionsTable.userId, DEFAULT_USER),
-        eq(dailyMissionsTable.date, today)
-      )
-    );
-
-  if (!mission) {
-    res.status(400).json({ error: "No mission found for today. Visit /gamification/missions/today first." });
-    return;
-  }
-
-  if (mission.status === "completed") {
-    res.status(400).json({ error: "Today's mission is already completed." });
-    return;
-  }
-
-  // Mark mission complete
-  await db
-    .update(dailyMissionsTable)
-    .set({ status: "completed", completedAt: new Date() })
-    .where(eq(dailyMissionsTable.id, mission.id));
-
-  // Award XP
-  const xpResult = await awardXp(mission.xpReward);
-
-  // Update streak
-  const progress = await getOrCreateProgress();
-  const yesterday = new Date();
-  yesterday.setDate(yesterday.getDate() - 1);
-  const yesterdayStr = yesterday.toISOString().slice(0, 10);
-
-  const wasStreakActive = progress.lastMissionDate === yesterdayStr || progress.currentStreak === 0;
-  const newStreak = wasStreakActive ? progress.currentStreak + 1 : 1;
-  const newLongest = Math.max(newStreak, progress.longestStreak);
-
-  await db
-    .update(userProgressTable)
-    .set({
-      currentStreak: newStreak,
-      longestStreak: newLongest,
-      lastMissionDate: today,
-    })
-    .where(eq(userProgressTable.userId, DEFAULT_USER));
-
-  // Check streak achievement
-  if (newStreak >= 3) {
-    await grantAchievementIfNew("streak_3", "3-Day Streak", "Completed daily missions 3 days in a row");
-  }
-
-  // Check insight seeker achievement
-  if (mission.missionType === "check_insights") {
-    await grantAchievementIfNew("insight_seeker", "Insight Seeker", "Completed the Explore Insights daily mission");
-  }
-
-  res.json(CompleteTodayMissionResponse.parse(xpResult));
 });
 
 router.get("/gamification/achievements", async (req, res): Promise<void> => {

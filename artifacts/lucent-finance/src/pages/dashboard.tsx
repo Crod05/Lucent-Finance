@@ -5,11 +5,9 @@ import {
   useGetSpendingByCategory,
   useGetProgress,
   useGetTodayMission,
-  useCompleteTodayMission,
-  useGetScorecard,
-  getGetTodayMissionQueryKey,
-  getGetProgressQueryKey
+  useGetScorecard
 } from "@workspace/api-client-react";
+import { Link } from "wouter";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { ArrowUpRight, ArrowDownRight, Wallet, CreditCard, PiggyBank, Flame, Trophy, Target, CheckCircle2, TrendingUp } from "lucide-react";
@@ -17,13 +15,15 @@ import { PieChart, Pie, Cell, ResponsiveContainer, Tooltip } from "recharts";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
-import { useQueryClient } from "@tanstack/react-query";
-import { useToast } from "@/hooks/use-toast";
+
+const MISSION_ACTIONS: Record<string, { href: string; label: string }> = {
+  log_transaction: { href: "/transactions", label: "Log a Transaction" },
+  review_budget: { href: "/budgets", label: "Review Budgets" },
+  pay_bill: { href: "/bills", label: "Go to Bills" },
+  check_insights: { href: "/insights", label: "Explore Insights" },
+};
 
 export default function Dashboard() {
-  const queryClient = useQueryClient();
-  const { toast } = useToast();
-
   const { data: summary, isLoading: loadingSummary } = useGetInsightsSummary();
   const { data: transactions, isLoading: loadingTransactions } = useListTransactions();
   const { data: bills, isLoading: loadingBills } = useGetUpcomingBills();
@@ -32,19 +32,6 @@ export default function Dashboard() {
   const { data: progress, isLoading: loadingProgress } = useGetProgress();
   const { data: mission, isLoading: loadingMission } = useGetTodayMission();
   const { data: scorecard, isLoading: loadingScorecard } = useGetScorecard();
-
-  const completeMission = useCompleteTodayMission({
-    mutation: {
-      onSuccess: () => {
-        queryClient.invalidateQueries({ queryKey: getGetTodayMissionQueryKey() });
-        queryClient.invalidateQueries({ queryKey: getGetProgressQueryKey() });
-        toast({
-          title: "Mission Completed!",
-          description: `You earned ${mission?.xpReward || 0} XP.`,
-        });
-      }
-    }
-  });
 
   return (
     <div className="space-y-8 animate-in fade-in duration-500">
@@ -88,12 +75,10 @@ export default function Dashboard() {
                     Mission Completed
                   </div>
                 ) : (
-                  <Button 
-                    className="w-full font-semibold shadow-sm"
-                    onClick={() => completeMission.mutate({})}
-                    disabled={completeMission.isPending}
-                  >
-                    {completeMission.isPending ? "Completing..." : "Complete Mission"}
+                  <Button asChild className="w-full font-semibold shadow-sm">
+                    <Link href={MISSION_ACTIONS[mission.missionType]?.href ?? "/"}>
+                      {MISSION_ACTIONS[mission.missionType]?.label ?? "Get Started"}
+                    </Link>
                   </Button>
                 )}
               </div>

@@ -1,6 +1,7 @@
 import { Router, type IRouter } from "express";
 import { gte, and, lte } from "drizzle-orm";
 import { db, transactionsTable, budgetsTable, billsTable, accountsTable } from "@workspace/db";
+import { completeMissionIfPending } from "../lib/xp";
 import {
   GetInsightsSummaryResponse,
   GetSpendingByCategoryResponse,
@@ -114,6 +115,10 @@ router.get("/insights/trends", async (req, res): Promise<void> => {
   const result = Object.values(grouped).sort((a, b) =>
     a.year !== b.year ? a.year - b.year : a.month - b.month
   );
+
+  // Viewing the Insights page (trends is only fetched there) is the evidence
+  // for the check_insights mission.
+  await completeMissionIfPending("check_insights");
 
   res.json(GetMonthlyTrendsResponse.parse(result));
 });

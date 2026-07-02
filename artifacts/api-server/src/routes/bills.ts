@@ -1,7 +1,7 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, billsTable } from "@workspace/db";
-import { awardXp, grantAchievementIfNew } from "../lib/xp";
+import { awardXpForEvent, grantAchievementIfNew, completeMissionIfPending } from "../lib/xp";
 import {
   ListBillsResponse,
   CreateBillBody,
@@ -100,9 +100,11 @@ router.patch("/bills/:id/pay", async (req, res): Promise<void> => {
     return;
   }
 
-  // Award XP for paying a bill; grant bill-slayer achievement if new
-  await awardXp(15);
+  // Award XP for paying a bill (idempotent per bill — repeat pay calls don't double-award);
+  // grant bill-slayer achievement if new; complete today's mission if it matches
+  await awardXpForEvent("bill_paid", String(row.id), 15);
   await grantAchievementIfNew("bill_slayer", "Bill Slayer", "Marked your first bill as paid");
+  await completeMissionIfPending("pay_bill");
 
   res.json(MarkBillPaidResponse.parse(mapBill(row)));
 });

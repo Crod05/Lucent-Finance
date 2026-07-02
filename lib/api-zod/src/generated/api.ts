@@ -471,17 +471,6 @@ export const GetTodayMissionResponse = zod.object({
 
 
 /**
- * @summary Mark today's mission as completed and award XP
- */
-export const CompleteTodayMissionResponse = zod.object({
-  "xpAwarded": zod.number(),
-  "newTotalXp": zod.number(),
-  "newLevel": zod.number(),
-  "leveledUp": zod.boolean()
-})
-
-
-/**
  * @summary List all achievements (earned and locked)
  */
 export const ListAchievementsResponseItem = zod.object({

@@ -457,21 +457,6 @@ paths:
               schema:
                 $ref: "#/components/schemas/DailyMission"
 
-  /gamification/missions/today/complete:
-    patch:
-      operationId: completeTodayMission
-      tags: [gamification]
-      summary: Mark today's mission as completed and award XP
-      responses:
-        "200":
-          description: XP event result
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/XpEvent"
-        "400":
-          description: Mission already completed or not applicable
-
   /gamification/achievements:
     get:
       operationId: listAchievements
@@ -883,19 +868,6 @@ components:
           $ref: "#/components/schemas/ScorecardItem"
         habitStreak:
           $ref: "#/components/schemas/ScorecardItem"
-
-    XpEvent:
-      type: object
-      required: [xpAwarded, newTotalXp, newLevel, leveledUp]
-      properties:
-        xpAwarded:
-          type: integer
-        newTotalXp:
-          type: integer
-        newLevel:
-          type: integer
-        leveledUp:
-          type: boolean
 
     AchievementStatus:
       type: object

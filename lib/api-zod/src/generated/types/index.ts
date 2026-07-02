@@ -42,4 +42,3 @@ export * from './transactionType';
 export * from './transactionUpdate';
 export * from './transactionUpdateType';
 export * from './userProgress';
-export * from './xpEvent';
