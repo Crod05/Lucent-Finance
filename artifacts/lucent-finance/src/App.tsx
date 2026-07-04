@@ -2,6 +2,8 @@ import { Switch, Route, Router as WouterRouter } from "wouter";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { Toaster } from "@/components/ui/toaster";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { useGetProgress } from "@workspace/api-client-react";
+import { Spinner } from "@/components/ui/spinner";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
 
@@ -14,6 +16,7 @@ import Accounts from "@/pages/accounts";
 import Insights from "@/pages/insights";
 import Progress from "@/pages/progress";
 import Settings from "@/pages/settings";
+import Onboarding from "@/pages/onboarding";
 
 const queryClient = new QueryClient({
   defaultOptions: {
@@ -42,12 +45,30 @@ function Router() {
   );
 }
 
+function Gate() {
+  const { data: progress, isLoading } = useGetProgress();
+
+  if (isLoading) {
+    return (
+      <div className="min-h-screen flex items-center justify-center">
+        <Spinner className="w-6 h-6 text-primary" />
+      </div>
+    );
+  }
+
+  if (progress && !progress.onboardingCompleted) {
+    return <Onboarding />;
+  }
+
+  return <Router />;
+}
+
 function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
         <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Router />
+          <Gate />
         </WouterRouter>
         <Toaster />
       </TooltipProvider>

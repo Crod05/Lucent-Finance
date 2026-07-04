@@ -4,6 +4,7 @@ import { Progress as ProgressBar } from "@/components/ui/progress";
 import { Trophy, Flame, Shield, Zap, Star, Eye, Lock, CheckCircle2 } from "lucide-react";
 import { Skeleton } from "@/components/ui/skeleton";
 import { formatDate } from "@/lib/format";
+import { getClassMeta } from "@/lib/classes";
 
 const ICONS: Record<string, any> = {
   first_transaction: Zap,
@@ -64,6 +65,42 @@ export default function Progress() {
                 </div>
                 <ProgressBar value={progress.levelProgress} className="h-3" />
               </div>
+
+              {/* Financial Class evolution */}
+              {(() => {
+                const meta = getClassMeta(progress.currentClass);
+                const ClassIcon = meta.icon;
+                return (
+                  <div className="rounded-xl border border-primary/20 bg-primary/5 p-5 space-y-3">
+                    <div className="flex items-center space-x-3">
+                      <div className="p-3 rounded-xl bg-primary/10 text-primary">
+                        <ClassIcon className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <p className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
+                          Financial Class
+                        </p>
+                        <h3 className="text-xl font-serif font-bold text-foreground">{progress.currentClass}</h3>
+                        <p className="text-xs text-muted-foreground">{meta.tagline}</p>
+                      </div>
+                    </div>
+                    <p className="text-sm text-muted-foreground">{meta.description}</p>
+                    {progress.nextClass ? (
+                      <div className="space-y-1.5 pt-1">
+                        <div className="flex justify-between text-xs font-medium text-muted-foreground">
+                          <span>Evolving to {progress.nextClass}</span>
+                          <span>{progress.xpToNextClass} XP to go</span>
+                        </div>
+                        <ProgressBar value={progress.classProgress} className="h-2.5" />
+                      </div>
+                    ) : (
+                      <p className="text-sm font-medium text-primary pt-1">
+                        You've reached the highest class. Legendary.
+                      </p>
+                    )}
+                  </div>
+                );
+              })()}
             </div>
           ) : (
              <div className="py-8 text-center text-muted-foreground">Unable to load progress</div>

@@ -30,7 +30,12 @@ _Populate as you build — non-obvious choices a reader couldn't infer from the 
 
 ## Product
 
-_Describe the high-level user-facing capabilities of this app once they exist._
+Lucent Finance is a personal finance app with a gamified "behavioral OS" layer:
+- **Onboarding / character creation**: name, spawn point (life stage), primary concern, and a starting Financial Class. Gated by `onboardingCompleted` on `user_progress`.
+- **Financial Class (HYBRID)**: chosen class is a floor; evolves UP with XP (Survivor → Builder → Investor → Strategist → Owner → Legacy Builder). Class Evolution bar on dashboard + progress pages.
+- **Daily Mission Briefing** (dashboard): time-of-day greeting by name, a primary daily mission, optional real-backed bonus mission, weekly challenge (5 missions / rolling 7 days), and today's spending insight.
+- **XP / levels / streaks / achievements** tracked on the progress page.
+- Single-user model: `DEFAULT_USER = "default-user"`. "Replay Character Creation" in Settings resets onboarding.
 
 ## User preferences
 

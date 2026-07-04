@@ -450,7 +450,16 @@ export const GetProgressResponse = zod.object({
   "longestStreak": zod.number(),
   "lastMissionDate": zod.string().nullish(),
   "xpToNextLevel": zod.number(),
-  "levelProgress": zod.number()
+  "levelProgress": zod.number(),
+  "name": zod.string().nullish(),
+  "spawnPoint": zod.string().nullish(),
+  "financialClass": zod.string().nullish(),
+  "primaryFinancialConcern": zod.string().nullish(),
+  "onboardingCompleted": zod.boolean(),
+  "currentClass": zod.string(),
+  "nextClass": zod.string().nullish(),
+  "classProgress": zod.number(),
+  "xpToNextClass": zod.number()
 })
 
 
@@ -512,6 +521,101 @@ export const GetScorecardResponse = zod.object({
   "maxScore": zod.number(),
   "status": zod.enum(['good', 'warning', 'danger'])
 })
+})
+
+
+/**
+ * @summary Get the daily mission briefing
+ */
+export const GetBriefingResponse = zod.object({
+  "timeOfDay": zod.enum(['morning', 'afternoon', 'evening']),
+  "name": zod.string().nullish(),
+  "personalizedNote": zod.string().nullish(),
+  "primaryMission": zod.object({
+  "missionType": zod.string(),
+  "title": zod.string(),
+  "description": zod.string(),
+  "xpReward": zod.number(),
+  "estimatedSeconds": zod.number(),
+  "status": zod.enum(['pending', 'completed'])
+}),
+  "bonusMission": zod.union([zod.object({
+  "missionType": zod.string(),
+  "title": zod.string(),
+  "description": zod.string(),
+  "xpReward": zod.number(),
+  "estimatedSeconds": zod.number(),
+  "status": zod.enum(['pending', 'completed'])
+}),zod.null()]).optional(),
+  "weeklyChallenge": zod.object({
+  "title": zod.string(),
+  "description": zod.string(),
+  "current": zod.number(),
+  "target": zod.number(),
+  "xpReward": zod.number()
+}),
+  "todaysInsight": zod.object({
+  "title": zod.string(),
+  "message": zod.string()
+})
+})
+
+
+/**
+ * @summary Complete character creation onboarding
+ */
+
+
+
+export const CompleteOnboardingBody = zod.object({
+  "name": zod.string().min(1),
+  "spawnPoint": zod.enum(['Student', 'First Job', 'Paycheck to Paycheck', 'Stable Career', 'Homeowner', 'Business Owner', 'Investor', 'Financial Rebuild', 'Early Retirement']),
+  "primaryFinancialConcern": zod.enum(['Debt', 'Living paycheck to paycheck', 'Not saving enough', 'Not investing', 'Supporting family', 'Buying a home', 'Retirement', 'Feeling disorganized', 'I\'m not sure yet']),
+  "financialClass": zod.enum(['Survivor', 'Builder', 'Investor', 'Strategist', 'Owner', 'Legacy Builder'])
+})
+
+export const CompleteOnboardingResponse = zod.object({
+  "userId": zod.string(),
+  "totalXp": zod.number(),
+  "level": zod.number(),
+  "currentStreak": zod.number(),
+  "longestStreak": zod.number(),
+  "lastMissionDate": zod.string().nullish(),
+  "xpToNextLevel": zod.number(),
+  "levelProgress": zod.number(),
+  "name": zod.string().nullish(),
+  "spawnPoint": zod.string().nullish(),
+  "financialClass": zod.string().nullish(),
+  "primaryFinancialConcern": zod.string().nullish(),
+  "onboardingCompleted": zod.boolean(),
+  "currentClass": zod.string(),
+  "nextClass": zod.string().nullish(),
+  "classProgress": zod.number(),
+  "xpToNextClass": zod.number()
+})
+
+
+/**
+ * @summary Reset onboarding so character creation can be replayed (demo)
+ */
+export const ResetOnboardingResponse = zod.object({
+  "userId": zod.string(),
+  "totalXp": zod.number(),
+  "level": zod.number(),
+  "currentStreak": zod.number(),
+  "longestStreak": zod.number(),
+  "lastMissionDate": zod.string().nullish(),
+  "xpToNextLevel": zod.number(),
+  "levelProgress": zod.number(),
+  "name": zod.string().nullish(),
+  "spawnPoint": zod.string().nullish(),
+  "financialClass": zod.string().nullish(),
+  "primaryFinancialConcern": zod.string().nullish(),
+  "onboardingCompleted": zod.boolean(),
+  "currentClass": zod.string(),
+  "nextClass": zod.string().nullish(),
+  "classProgress": zod.number(),
+  "xpToNextClass": zod.number()
 })
 
 

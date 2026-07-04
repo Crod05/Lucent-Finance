@@ -11,6 +11,63 @@ const DEFAULT_USER = "default-user";
 
 const LEVEL_THRESHOLDS = [0, 100, 250, 500, 1000, 2000, 4000];
 
+/**
+ * The Financial Class evolution ladder. Classes are ordered; each has an XP
+ * threshold. The class is "hybrid": the player chooses a starting class at
+ * onboarding (which acts as a floor and sets initial tone), and evolves UP the
+ * ladder as XP thresholds are reached — never regressing below the chosen start.
+ */
+export const CLASS_LADDER = [
+  { key: "Survivor", threshold: 0 },
+  { key: "Builder", threshold: 250 },
+  { key: "Investor", threshold: 500 },
+  { key: "Strategist", threshold: 1000 },
+  { key: "Owner", threshold: 2000 },
+  { key: "Legacy Builder", threshold: 4000 },
+] as const;
+
+function classIndex(key: string | null | undefined): number {
+  const idx = CLASS_LADDER.findIndex((c) => c.key === key);
+  return idx < 0 ? 0 : idx;
+}
+
+export interface ClassEvolution {
+  currentClass: string;
+  nextClass: string | null;
+  classProgress: number;
+  xpToNextClass: number;
+}
+
+/**
+ * Computes the player's current class given their total XP and their chosen
+ * starting class. The current class is the higher of (a) the XP-earned class
+ * and (b) the chosen starting class — so choosing a class never demotes you,
+ * but XP can promote you above it.
+ */
+export function computeClassEvolution(
+  totalXp: number,
+  startingClass: string | null | undefined
+): ClassEvolution {
+  let xpIndex = 0;
+  for (let i = 0; i < CLASS_LADDER.length; i++) {
+    if (totalXp >= CLASS_LADDER[i].threshold) xpIndex = i;
+    else break;
+  }
+  const currentIndex = Math.max(xpIndex, classIndex(startingClass));
+  const current = CLASS_LADDER[currentIndex];
+  const next = CLASS_LADDER[currentIndex + 1] ?? null;
+
+  if (!next) {
+    return { currentClass: current.key, nextClass: null, classProgress: 100, xpToNextClass: 0 };
+  }
+
+  const span = next.threshold - current.threshold;
+  const gained = Math.max(0, totalXp - current.threshold);
+  const classProgress = span > 0 ? Math.min(100, Math.round((gained / span) * 100)) : 0;
+  const xpToNextClass = Math.max(0, next.threshold - totalXp);
+  return { currentClass: current.key, nextClass: next.key, classProgress, xpToNextClass };
+}
+
 export function computeLevel(totalXp: number): number {
   let level = 1;
   for (let i = 1; i < LEVEL_THRESHOLDS.length; i++) {

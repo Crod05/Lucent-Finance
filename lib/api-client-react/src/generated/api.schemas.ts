@@ -293,6 +293,20 @@ export interface UserProgress {
   lastMissionDate?: string | null;
   xpToNextLevel: number;
   levelProgress: number;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  spawnPoint?: string | null;
+  /** @nullable */
+  financialClass?: string | null;
+  /** @nullable */
+  primaryFinancialConcern?: string | null;
+  onboardingCompleted: boolean;
+  currentClass: string;
+  /** @nullable */
+  nextClass?: string | null;
+  classProgress: number;
+  xpToNextClass: number;
 }
 
 export type DailyMissionStatus = typeof DailyMissionStatus[keyof typeof DailyMissionStatus];
@@ -346,6 +360,107 @@ export interface Scorecard {
   billsStatus: ScorecardItem;
   spendingAwareness: ScorecardItem;
   habitStreak: ScorecardItem;
+}
+
+export type OnboardingInputSpawnPoint = typeof OnboardingInputSpawnPoint[keyof typeof OnboardingInputSpawnPoint];
+
+
+export const OnboardingInputSpawnPoint = {
+  Student: 'Student',
+  First_Job: 'First Job',
+  Paycheck_to_Paycheck: 'Paycheck to Paycheck',
+  Stable_Career: 'Stable Career',
+  Homeowner: 'Homeowner',
+  Business_Owner: 'Business Owner',
+  Investor: 'Investor',
+  Financial_Rebuild: 'Financial Rebuild',
+  Early_Retirement: 'Early Retirement',
+} as const;
+
+export type OnboardingInputPrimaryFinancialConcern = typeof OnboardingInputPrimaryFinancialConcern[keyof typeof OnboardingInputPrimaryFinancialConcern];
+
+
+export const OnboardingInputPrimaryFinancialConcern = {
+  Debt: 'Debt',
+  Living_paycheck_to_paycheck: 'Living paycheck to paycheck',
+  Not_saving_enough: 'Not saving enough',
+  Not_investing: 'Not investing',
+  Supporting_family: 'Supporting family',
+  Buying_a_home: 'Buying a home',
+  Retirement: 'Retirement',
+  Feeling_disorganized: 'Feeling disorganized',
+  'I\'m_not_sure_yet': 'I\'m not sure yet',
+} as const;
+
+export type OnboardingInputFinancialClass = typeof OnboardingInputFinancialClass[keyof typeof OnboardingInputFinancialClass];
+
+
+export const OnboardingInputFinancialClass = {
+  Survivor: 'Survivor',
+  Builder: 'Builder',
+  Investor: 'Investor',
+  Strategist: 'Strategist',
+  Owner: 'Owner',
+  Legacy_Builder: 'Legacy Builder',
+} as const;
+
+export interface OnboardingInput {
+  /** @minLength 1 */
+  name: string;
+  spawnPoint: OnboardingInputSpawnPoint;
+  primaryFinancialConcern: OnboardingInputPrimaryFinancialConcern;
+  financialClass: OnboardingInputFinancialClass;
+}
+
+export type BriefingMissionStatus = typeof BriefingMissionStatus[keyof typeof BriefingMissionStatus];
+
+
+export const BriefingMissionStatus = {
+  pending: 'pending',
+  completed: 'completed',
+} as const;
+
+export interface BriefingMission {
+  missionType: string;
+  title: string;
+  description: string;
+  xpReward: number;
+  estimatedSeconds: number;
+  status: BriefingMissionStatus;
+}
+
+export interface WeeklyChallenge {
+  title: string;
+  description: string;
+  current: number;
+  target: number;
+  xpReward: number;
+}
+
+export interface TodaysInsight {
+  title: string;
+  message: string;
+}
+
+export type DailyBriefingTimeOfDay = typeof DailyBriefingTimeOfDay[keyof typeof DailyBriefingTimeOfDay];
+
+
+export const DailyBriefingTimeOfDay = {
+  morning: 'morning',
+  afternoon: 'afternoon',
+  evening: 'evening',
+} as const;
+
+export interface DailyBriefing {
+  timeOfDay: DailyBriefingTimeOfDay;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  personalizedNote?: string | null;
+  primaryMission: BriefingMission;
+  bonusMission?: BriefingMission | null;
+  weeklyChallenge: WeeklyChallenge;
+  todaysInsight: TodaysInsight;
 }
 
 export interface AchievementStatus {

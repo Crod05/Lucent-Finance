@@ -1,5 +1,5 @@
 import { Router, type IRouter } from "express";
-import { eq, and } from "drizzle-orm";
+import { eq, and, gte, lte } from "drizzle-orm";
 import {
   db,
   userProgressTable,
@@ -8,23 +8,51 @@ import {
   budgetsTable,
   billsTable,
   transactionsTable,
+  xpEventsTable,
 } from "@workspace/db";
 import {
   GetProgressResponse,
   GetTodayMissionResponse,
   ListAchievementsResponse,
   GetScorecardResponse,
+  GetBriefingResponse,
+  CompleteOnboardingBody,
+  CompleteOnboardingResponse,
+  ResetOnboardingResponse,
 } from "@workspace/api-zod";
 import {
   getOrCreateProgress,
   computeLevel,
   computeXpToNextLevel,
   computeLevelProgress,
+  computeClassEvolution,
 } from "../lib/xp";
 
 const router: IRouter = Router();
 
 const DEFAULT_USER = "default-user";
+
+// Estimated time-to-complete per mission type, shown in the briefing so a
+// player knows a mission is a quick micro-win.
+const EST_SECONDS: Record<string, number> = {
+  log_transaction: 30,
+  review_budget: 20,
+  pay_bill: 25,
+  check_insights: 20,
+};
+
+// Positive, no-shame framing tied to the player's onboarding concern.
+const CONCERN_NOTES: Record<string, string> = {
+  Debt: "Every small action chips away at the mountain. You're moving forward.",
+  "Living paycheck to paycheck": "Awareness is the first win. Each logged day builds your cushion.",
+  "Not saving enough": "Small, steady wins compound. You're building the habit that builds savings.",
+  "Not investing": "Clarity comes first, then confidence to invest. You're laying the groundwork.",
+  "Supporting family": "Looking after your money is looking after them too. Nicely done.",
+  "Buying a home": "Every organized day brings the keys a little closer.",
+  Retirement: "Future you is grateful for the habits you're building today.",
+  "Feeling disorganized": "One tidy action at a time — you're bringing order to the chaos.",
+  "I'm not sure yet": "Exploring is progress. Keep showing up and the picture gets clearer.",
+};
 
 const MISSION_POOL = [
   {
@@ -90,23 +118,35 @@ function todayStr(): string {
   return new Date().toISOString().slice(0, 10);
 }
 
-router.get("/gamification/progress", async (req, res): Promise<void> => {
-  const progress = await getOrCreateProgress();
-  res.json(
-    GetProgressResponse.parse({
-      userId: progress.userId,
-      totalXp: progress.totalXp,
-      level: computeLevel(progress.totalXp),
-      currentStreak: progress.currentStreak,
-      longestStreak: progress.longestStreak,
-      lastMissionDate: progress.lastMissionDate ?? null,
-      xpToNextLevel: computeXpToNextLevel(progress.totalXp),
-      levelProgress: computeLevelProgress(progress.totalXp),
-    })
-  );
-});
+function serializeProgress(progress: typeof userProgressTable.$inferSelect) {
+  const evolution = computeClassEvolution(progress.totalXp, progress.financialClass);
+  return GetProgressResponse.parse({
+    userId: progress.userId,
+    totalXp: progress.totalXp,
+    level: computeLevel(progress.totalXp),
+    currentStreak: progress.currentStreak,
+    longestStreak: progress.longestStreak,
+    lastMissionDate: progress.lastMissionDate ?? null,
+    xpToNextLevel: computeXpToNextLevel(progress.totalXp),
+    levelProgress: computeLevelProgress(progress.totalXp),
+    name: progress.name ?? null,
+    spawnPoint: progress.spawnPoint ?? null,
+    financialClass: progress.financialClass ?? null,
+    primaryFinancialConcern: progress.primaryFinancialConcern ?? null,
+    onboardingCompleted: progress.onboardingCompleted,
+    currentClass: evolution.currentClass,
+    nextClass: evolution.nextClass,
+    classProgress: evolution.classProgress,
+    xpToNextClass: evolution.xpToNextClass,
+  });
+}
 
-router.get("/gamification/missions/today", async (req, res): Promise<void> => {
+/**
+ * Returns today's persisted daily mission, generating it deterministically
+ * (by day-of-year) if it doesn't exist yet. This is the single source of
+ * truth for the day's primary mission — the briefing reuses it unchanged.
+ */
+async function getOrCreateTodayMission() {
   const today = todayStr();
 
   const [existing] = await db
@@ -119,17 +159,8 @@ router.get("/gamification/missions/today", async (req, res): Promise<void> => {
       )
     );
 
-  if (existing) {
-    res.json(
-      GetTodayMissionResponse.parse({
-        ...existing,
-        completedAt: existing.completedAt ? existing.completedAt.toISOString() : null,
-      })
-    );
-    return;
-  }
+  if (existing) return existing;
 
-  // Pick a mission based on day-of-year so it rotates deterministically
   const dayOfYear = Math.floor(
     (new Date().getTime() - new Date(new Date().getFullYear(), 0, 0).getTime()) / 86400000
   );
@@ -151,20 +182,27 @@ router.get("/gamification/missions/today", async (req, res): Promise<void> => {
     .onConflictDoNothing()
     .returning();
 
-  const row =
-    created ??
-    (
-      await db
-        .select()
-        .from(dailyMissionsTable)
-        .where(
-          and(
-            eq(dailyMissionsTable.userId, DEFAULT_USER),
-            eq(dailyMissionsTable.date, today)
-          )
-        )
-    )[0];
+  if (created) return created;
 
+  const [row] = await db
+    .select()
+    .from(dailyMissionsTable)
+    .where(
+      and(
+        eq(dailyMissionsTable.userId, DEFAULT_USER),
+        eq(dailyMissionsTable.date, today)
+      )
+    );
+  return row;
+}
+
+router.get("/gamification/progress", async (req, res): Promise<void> => {
+  const progress = await getOrCreateProgress();
+  res.json(serializeProgress(progress));
+});
+
+router.get("/gamification/missions/today", async (req, res): Promise<void> => {
+  const row = await getOrCreateTodayMission();
   res.json(
     GetTodayMissionResponse.parse({
       ...row,
@@ -237,6 +275,188 @@ router.get("/gamification/scorecard", async (req, res): Promise<void> => {
       habitStreak: { label: "Habit Streak", score: streakScore, maxScore: 100, status: streakStatus },
     })
   );
+});
+
+function timeOfDay(): "morning" | "afternoon" | "evening" {
+  const hour = new Date().getHours();
+  if (hour < 12) return "morning";
+  if (hour < 18) return "afternoon";
+  return "evening";
+}
+
+/**
+ * Builds the optional bonus mission: a second real-backed action, different
+ * from the primary. Only mission types whose completion we can verify from
+ * real data are eligible (P0 rule — no fake completion). Completion is derived
+ * from evidence, never a button.
+ */
+async function buildBonusMission(primaryType: string, today: string) {
+  // Detectable candidates, in priority order. Both map to real evidence.
+  const candidates = ["log_transaction", "pay_bill"].filter((t) => t !== primaryType);
+  const type = candidates[0];
+  if (!type) return null;
+
+  const pool = MISSION_POOL.find((m) => m.missionType === type);
+  if (!pool) return null;
+
+  let completed = false;
+  if (type === "log_transaction") {
+    const rows = await db
+      .select({ id: transactionsTable.id })
+      .from(transactionsTable)
+      .where(eq(transactionsTable.date, today))
+      .limit(1);
+    completed = rows.length > 0;
+  } else if (type === "pay_bill") {
+    const rows = await db
+      .select({ id: xpEventsTable.id })
+      .from(xpEventsTable)
+      .where(
+        and(
+          eq(xpEventsTable.userId, DEFAULT_USER),
+          eq(xpEventsTable.eventType, "bill_paid"),
+          gte(xpEventsTable.createdAt, new Date(`${today}T00:00:00.000Z`))
+        )
+      )
+      .limit(1);
+    completed = rows.length > 0;
+  }
+
+  return {
+    missionType: pool.missionType,
+    title: pool.title,
+    description: pool.description,
+    xpReward: 15,
+    estimatedSeconds: EST_SECONDS[pool.missionType] ?? 30,
+    status: completed ? ("completed" as const) : ("pending" as const),
+  };
+}
+
+async function buildTodaysInsight() {
+  const now = new Date();
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
+
+  const txns = await db
+    .select()
+    .from(transactionsTable)
+    .where(gte(transactionsTable.date, firstOfMonth));
+
+  const expenses = txns.filter((t) => t.type === "expense");
+  if (expenses.length === 0) {
+    return {
+      title: "Today's Insight",
+      message: "No spending logged yet this month — a clean slate. Log a transaction to start your picture.",
+    };
+  }
+
+  const byCategory = new Map<string, number>();
+  for (const t of expenses) {
+    byCategory.set(t.category, (byCategory.get(t.category) ?? 0) + Number(t.amount));
+  }
+  const [topCategory, topAmount] = [...byCategory.entries()].sort((a, b) => b[1] - a[1])[0];
+  const formatted = `$${topAmount.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+
+  return {
+    title: "Today's Insight",
+    message: `Your biggest category this month is ${topCategory} at ${formatted}. Knowing where it goes is half the battle — nice awareness.`,
+  };
+}
+
+router.get("/gamification/briefing", async (req, res): Promise<void> => {
+  const today = todayStr();
+  const [progress, missionRow] = await Promise.all([
+    getOrCreateProgress(),
+    getOrCreateTodayMission(),
+  ]);
+
+  const primaryMission = {
+    missionType: missionRow.missionType,
+    title: missionRow.title,
+    description: missionRow.description,
+    xpReward: missionRow.xpReward,
+    estimatedSeconds: EST_SECONDS[missionRow.missionType] ?? 30,
+    status: missionRow.status === "completed" ? ("completed" as const) : ("pending" as const),
+  };
+
+  const bonusMission = await buildBonusMission(missionRow.missionType, today);
+
+  // Weekly Challenge: daily missions completed in the last 7 days (rolling).
+  const weekStart = new Date(Date.now() - 6 * 86400000).toISOString().slice(0, 10);
+  const weekMissions = await db
+    .select({ status: dailyMissionsTable.status })
+    .from(dailyMissionsTable)
+    .where(
+      and(
+        eq(dailyMissionsTable.userId, DEFAULT_USER),
+        gte(dailyMissionsTable.date, weekStart),
+        lte(dailyMissionsTable.date, today)
+      )
+    );
+  const completedThisWeek = weekMissions.filter((m) => m.status === "completed").length;
+
+  const todaysInsight = await buildTodaysInsight();
+
+  res.json(
+    GetBriefingResponse.parse({
+      timeOfDay: timeOfDay(),
+      name: progress.name ?? null,
+      personalizedNote: progress.primaryFinancialConcern
+        ? CONCERN_NOTES[progress.primaryFinancialConcern] ?? null
+        : null,
+      primaryMission,
+      bonusMission,
+      weeklyChallenge: {
+        title: "Weekly Streak Builder",
+        description: "Complete 5 daily missions this week to prove the habit is sticking.",
+        current: Math.min(completedThisWeek, 5),
+        target: 5,
+        xpReward: 50,
+      },
+      todaysInsight,
+    })
+  );
+});
+
+router.post("/gamification/onboarding", async (req, res): Promise<void> => {
+  const parsed = CompleteOnboardingBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.message });
+    return;
+  }
+
+  await getOrCreateProgress();
+  const [updated] = await db
+    .update(userProgressTable)
+    .set({
+      name: parsed.data.name,
+      spawnPoint: parsed.data.spawnPoint,
+      primaryFinancialConcern: parsed.data.primaryFinancialConcern,
+      financialClass: parsed.data.financialClass,
+      onboardingCompleted: true,
+    })
+    .where(eq(userProgressTable.userId, DEFAULT_USER))
+    .returning();
+
+  req.log.info({ userId: DEFAULT_USER }, "onboarding completed");
+  res.json(CompleteOnboardingResponse.parse(serializeProgress(updated)));
+});
+
+router.post("/gamification/onboarding/reset", async (req, res): Promise<void> => {
+  await getOrCreateProgress();
+  const [updated] = await db
+    .update(userProgressTable)
+    .set({
+      onboardingCompleted: false,
+      name: null,
+      spawnPoint: null,
+      financialClass: null,
+      primaryFinancialConcern: null,
+    })
+    .where(eq(userProgressTable.userId, DEFAULT_USER))
+    .returning();
+
+  req.log.info({ userId: DEFAULT_USER }, "onboarding reset");
+  res.json(ResetOnboardingResponse.parse(serializeProgress(updated)));
 });
 
 export default router;

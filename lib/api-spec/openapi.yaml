@@ -485,6 +485,51 @@ paths:
               schema:
                 $ref: "#/components/schemas/Scorecard"
 
+  /gamification/briefing:
+    get:
+      operationId: getBriefing
+      tags: [gamification]
+      summary: Get the daily mission briefing
+      responses:
+        "200":
+          description: Daily mission briefing
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DailyBriefing"
+
+  /gamification/onboarding:
+    post:
+      operationId: completeOnboarding
+      tags: [gamification]
+      summary: Complete character creation onboarding
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/OnboardingInput"
+      responses:
+        "200":
+          description: Updated user progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProgress"
+
+  /gamification/onboarding/reset:
+    post:
+      operationId: resetOnboarding
+      tags: [gamification]
+      summary: Reset onboarding so character creation can be replayed (demo)
+      responses:
+        "200":
+          description: Updated user progress
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/UserProgress"
+
 components:
   schemas:
     HealthStatus:
@@ -782,7 +827,20 @@ components:
 
     UserProgress:
       type: object
-      required: [userId, totalXp, level, currentStreak, longestStreak, xpToNextLevel, levelProgress]
+      required:
+        [
+          userId,
+          totalXp,
+          level,
+          currentStreak,
+          longestStreak,
+          xpToNextLevel,
+          levelProgress,
+          onboardingCompleted,
+          currentClass,
+          classProgress,
+          xpToNextClass,
+        ]
       properties:
         userId:
           type: string
@@ -800,6 +858,24 @@ components:
           type: integer
         levelProgress:
           type: number
+        name:
+          type: ["string", "null"]
+        spawnPoint:
+          type: ["string", "null"]
+        financialClass:
+          type: ["string", "null"]
+        primaryFinancialConcern:
+          type: ["string", "null"]
+        onboardingCompleted:
+          type: boolean
+        currentClass:
+          type: string
+        nextClass:
+          type: ["string", "null"]
+        classProgress:
+          type: number
+        xpToNextClass:
+          type: integer
 
     DailyMission:
       type: object
@@ -868,6 +944,105 @@ components:
           $ref: "#/components/schemas/ScorecardItem"
         habitStreak:
           $ref: "#/components/schemas/ScorecardItem"
+
+    OnboardingInput:
+      type: object
+      required: [name, spawnPoint, primaryFinancialConcern, financialClass]
+      properties:
+        name:
+          type: string
+          minLength: 1
+        spawnPoint:
+          type: string
+          enum:
+            - Student
+            - First Job
+            - Paycheck to Paycheck
+            - Stable Career
+            - Homeowner
+            - Business Owner
+            - Investor
+            - Financial Rebuild
+            - Early Retirement
+        primaryFinancialConcern:
+          type: string
+          enum:
+            - Debt
+            - Living paycheck to paycheck
+            - Not saving enough
+            - Not investing
+            - Supporting family
+            - Buying a home
+            - Retirement
+            - Feeling disorganized
+            - I'm not sure yet
+        financialClass:
+          type: string
+          enum: [Survivor, Builder, Investor, Strategist, Owner, Legacy Builder]
+
+    BriefingMission:
+      type: object
+      required: [missionType, title, description, xpReward, estimatedSeconds, status]
+      properties:
+        missionType:
+          type: string
+        title:
+          type: string
+        description:
+          type: string
+        xpReward:
+          type: integer
+        estimatedSeconds:
+          type: integer
+        status:
+          type: string
+          enum: [pending, completed]
+
+    WeeklyChallenge:
+      type: object
+      required: [title, description, current, target, xpReward]
+      properties:
+        title:
+          type: string
+        description:
+          type: string
+        current:
+          type: integer
+        target:
+          type: integer
+        xpReward:
+          type: integer
+
+    TodaysInsight:
+      type: object
+      required: [title, message]
+      properties:
+        title:
+          type: string
+        message:
+          type: string
+
+    DailyBriefing:
+      type: object
+      required: [timeOfDay, primaryMission, weeklyChallenge, todaysInsight]
+      properties:
+        timeOfDay:
+          type: string
+          enum: [morning, afternoon, evening]
+        name:
+          type: ["string", "null"]
+        personalizedNote:
+          type: ["string", "null"]
+        primaryMission:
+          $ref: "#/components/schemas/BriefingMission"
+        bonusMission:
+          anyOf:
+            - $ref: "#/components/schemas/BriefingMission"
+            - type: "null"
+        weeklyChallenge:
+          $ref: "#/components/schemas/WeeklyChallenge"
+        todaysInsight:
+          $ref: "#/components/schemas/TodaysInsight"
 
     AchievementStatus:
       type: object

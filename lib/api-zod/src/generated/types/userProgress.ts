@@ -16,4 +16,18 @@ export interface UserProgress {
   lastMissionDate?: string | null;
   xpToNextLevel: number;
   levelProgress: number;
+  /** @nullable */
+  name?: string | null;
+  /** @nullable */
+  spawnPoint?: string | null;
+  /** @nullable */
+  financialClass?: string | null;
+  /** @nullable */
+  primaryFinancialConcern?: string | null;
+  onboardingCompleted: boolean;
+  currentClass: string;
+  /** @nullable */
+  nextClass?: string | null;
+  classProgress: number;
+  xpToNextClass: number;
 }

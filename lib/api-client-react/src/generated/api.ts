@@ -31,10 +31,12 @@ import type {
   BudgetInput,
   BudgetUpdate,
   CategorySpend,
+  DailyBriefing,
   DailyMission,
   HealthStatus,
   InsightsSummary,
   MonthlyTrend,
+  OnboardingInput,
   Scorecard,
   Transaction,
   TransactionInput,
@@ -2061,4 +2063,221 @@ export function useGetScorecard<TData = Awaited<ReturnType<typeof getScorecard>>
 
 
 
+
+export const getGetBriefingUrl = () => {
+
+
+
+
+  return `/api/gamification/briefing`
+}
+
+/**
+ * @summary Get the daily mission briefing
+ */
+export const getBriefing = async ( options?: RequestInit): Promise<DailyBriefing> => {
+
+  return customFetch<DailyBriefing>(getGetBriefingUrl(),
+  {
+    ...options,
+    method: 'GET'
+
+
+  }
+);}
+
+
+
+
+
+export const getGetBriefingQueryKey = () => {
+    return [
+    `/api/gamification/briefing`
+    ] as const;
+    }
+
+
+export const getGetBriefingQueryOptions = <TData = Awaited<ReturnType<typeof getBriefing>>, TError = ErrorType<unknown>>( options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBriefing>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+) => {
+
+const {query: queryOptions, request: requestOptions} = options ?? {};
+
+  const queryKey =  queryOptions?.queryKey ?? getGetBriefingQueryKey();
+
+
+
+    const queryFn: QueryFunction<Awaited<ReturnType<typeof getBriefing>>> = ({ signal }) => getBriefing({ signal, ...requestOptions });
+
+
+
+
+
+   return  { queryKey, queryFn, ...queryOptions} as UseQueryOptions<Awaited<ReturnType<typeof getBriefing>>, TError, TData> & { queryKey: QueryKey }
+}
+
+export type GetBriefingQueryResult = NonNullable<Awaited<ReturnType<typeof getBriefing>>>
+export type GetBriefingQueryError = ErrorType<unknown>
+
+
+/**
+ * @summary Get the daily mission briefing
+ */
+
+export function useGetBriefing<TData = Awaited<ReturnType<typeof getBriefing>>, TError = ErrorType<unknown>>(
+  options?: { query?:UseQueryOptions<Awaited<ReturnType<typeof getBriefing>>, TError, TData>, request?: SecondParameter<typeof customFetch>}
+
+ ):  UseQueryResult<TData, TError> & { queryKey: QueryKey } {
+
+  const queryOptions = getGetBriefingQueryOptions(options)
+
+  const query = useQuery(queryOptions) as  UseQueryResult<TData, TError> & { queryKey: QueryKey };
+
+  return withQueryKey(query, queryOptions.queryKey);
+}
+
+
+
+
+
+
+
+export const getCompleteOnboardingUrl = () => {
+
+
+
+
+  return `/api/gamification/onboarding`
+}
+
+/**
+ * @summary Complete character creation onboarding
+ */
+export const completeOnboarding = async (onboardingInput: OnboardingInput, options?: RequestInit): Promise<UserProgress> => {
+
+  return customFetch<UserProgress>(getCompleteOnboardingUrl(),
+  {
+    ...options,
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...options?.headers },
+    body: JSON.stringify(onboardingInput)
+  }
+);}
+
+
+
+
+export const getCompleteOnboardingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<OnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<OnboardingInput>}, TContext> => {
+
+const mutationKey = ['completeOnboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof completeOnboarding>>, {data: BodyType<OnboardingInput>}> = (props) => {
+          const {data} = props ?? {};
+
+          return  completeOnboarding(data,requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type CompleteOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof completeOnboarding>>>
+    export type CompleteOnboardingMutationBody = BodyType<OnboardingInput>
+    export type CompleteOnboardingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Complete character creation onboarding
+ */
+export const useCompleteOnboarding = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<OnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof completeOnboarding>>,
+        TError,
+        {data: BodyType<OnboardingInput>},
+        TContext
+      > => {
+      return useMutation(getCompleteOnboardingMutationOptions(options));
+    }
+
+export const getResetOnboardingUrl = () => {
+
+
+
+
+  return `/api/gamification/onboarding/reset`
+}
+
+/**
+ * @summary Reset onboarding so character creation can be replayed (demo)
+ */
+export const resetOnboarding = async ( options?: RequestInit): Promise<UserProgress> => {
+
+  return customFetch<UserProgress>(getResetOnboardingUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getResetOnboardingMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetOnboarding>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof resetOnboarding>>, TError,void, TContext> => {
+
+const mutationKey = ['resetOnboarding'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof resetOnboarding>>, void> = () => {
+
+
+          return  resetOnboarding(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type ResetOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof resetOnboarding>>>
+
+    export type ResetOnboardingMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Reset onboarding so character creation can be replayed (demo)
+ */
+export const useResetOnboarding = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetOnboarding>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof resetOnboarding>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getResetOnboardingMutationOptions(options));
+    }
 

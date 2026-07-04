@@ -1,1 +1,1 @@
-- [Drizzle push non-interactive](drizzle-push-non-interactive.md) — unique constraints on populated tables need manual psql DDL; drizzle-kit push prompts for TTY even with --force.
+- [Behavioral OS](behavioral-os.md) — Lucent Finance gamification: HYBRID class floor, real-backed-only missions, single-user model, weekly-window bounds.
