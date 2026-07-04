@@ -1,0 +1,58 @@
+We are evolving Lucent Finance from a finance tracker into a 
+behavioral operating system. Do not remove any existing features.
+Add the following new systems:
+
+1. Character Creation Onboarding (new players only)
+   - "Where are you spawning?" selection screen with these options:
+     Student, First Job, Paycheck to Paycheck, Stable Career,
+     Homeowner, Business Owner, Investor, Financial Rebuild,
+     Early Retirement
+   - One emotional calibration question before class selection:
+     "What keeps you up at night financially?"
+     Options: Debt, Living paycheck to paycheck, Not saving enough,
+     Not investing, Supporting family, Buying a home, Retirement,
+     Feeling disorganized, I'm not sure yet
+   - Store as primary_financial_concern on user_progress table
+   - "Choose your Financial Class" selection:
+     Survivor, Builder, Investor, Strategist, Owner, Legacy Builder
+   - Each class has a short description of what it means
+   - Store spawn_point, financial_class, and primary_financial_concern
+     on user_progress table
+   - Show class name and icon on Dashboard and Progress page
+
+2. Upgraded Daily Mission Briefing
+   - Upgrade the existing mission card into a Daily Mission Briefing
+     while preserving all current mission logic and data
+   - Personalized greeting using time of day:
+     "Good Morning/Afternoon/Evening, [name]"
+   - Primary Mission with title, description, XP reward,
+     estimated time in seconds
+   - Bonus Mission (optional stretch goal)
+   - Weekly Challenge with progress bar (X/5 this week)
+   - Today's Insight — one auto-generated contextual observation
+     from their actual transaction data
+   - Use primary_financial_concern to personalize mission language
+     where possible. No shame or fear-based messaging ever.
+
+3. Micro Win Mission Types
+   Add these mission types to the daily mission generator:
+   - Categorize one uncategorized transaction (+15 XP, ~30 sec)
+   - Review yesterday's spending (+10 XP, ~20 sec)
+   - Confirm one recurring bill (+15 XP, ~18 sec)
+   - Rate today's spending as good/okay/could be better (+10 XP)
+   - View one insight chart (+10 XP, ~20 sec)
+
+4. Adaptive Difficulty
+   - If player completes all missions 3 days in a row:
+     increase XP targets by 10% next day
+   - If player misses 3 days: scale back to simplest mission type
+     with welcome back message
+   - Never show guilt messaging, only encouragement
+
+5. Financial Class progress bar on Dashboard
+   Show how far the player is toward evolving to the next class
+   based on XP thresholds
+
+Keep all existing gamification intact. Add sample data for all 
+new features so they can be tested immediately. Typecheck and 
+confirm push to Crod05/Lucent-Finance when done.
