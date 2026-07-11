@@ -105,7 +105,20 @@ export function TransactionDialog({
       queryClient.invalidateQueries({ queryKey: getListTransactionsQueryKey() });
       onOpenChange(false);
     } catch (e) {
-      toast({ title: "Error saving transaction", variant: "destructive" });
+      // The server rejects exact duplicates (same date, description, amount,
+      // type, account) with a 409 + duplicate flag — surface that clearly.
+      // ApiError from the generated client carries status/data at top level.
+      const err = e as { status?: number; data?: { duplicate?: boolean } | null };
+      if (err.status === 409 && err.data?.duplicate) {
+        toast({
+          title: "Duplicate transaction",
+          description:
+            "An identical transaction already exists (same date, description, amount, type, and account).",
+          variant: "destructive",
+        });
+      } else {
+        toast({ title: "Error saving transaction", variant: "destructive" });
+      }
     }
   };
 

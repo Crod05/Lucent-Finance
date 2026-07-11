@@ -68,6 +68,12 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/Transaction"
+        "409":
+          description: Duplicate transaction (same date, description, amount, type, and account already exists)
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DuplicateTransactionError"
 
   /transactions/{id}:
     get:
@@ -114,6 +120,12 @@ paths:
                 $ref: "#/components/schemas/Transaction"
         "404":
           description: Not found
+        "409":
+          description: Update would duplicate an existing transaction
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/DuplicateTransactionError"
     delete:
       operationId: deleteTransaction
       tags: [transactions]
@@ -597,6 +609,18 @@ components:
         createdAt:
           type: string
           format: date-time
+
+    DuplicateTransactionError:
+      type: object
+      required: [error, duplicate]
+      properties:
+        error:
+          type: string
+        duplicate:
+          type: boolean
+        existingId:
+          type: integer
+          description: ID of the already-existing transaction with the same fingerprint
 
     TransactionInput:
       type: object

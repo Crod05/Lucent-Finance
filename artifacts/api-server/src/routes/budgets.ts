@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, budgetsTable } from "@workspace/db";
 import { completeMissionIfPending } from "../lib/xp";
+import { evaluateBudgetGuardian } from "../lib/budget-guardian";
 import {
   ListBudgetsResponse,
   MarkBudgetsReviewedResponse,
@@ -36,6 +37,9 @@ router.get("/budgets", async (req, res): Promise<void> => {
 // can never double-award.
 router.post("/budgets/reviewed", async (req, res): Promise<void> => {
   const result = await completeMissionIfPending("review_budget");
+  // Reviewing budgets is a natural checkpoint to evaluate the one-time
+  // Budget Guardian badge for the most recent completed month (idempotent).
+  await evaluateBudgetGuardian();
   res.json(MarkBudgetsReviewedResponse.parse(result));
 });
 

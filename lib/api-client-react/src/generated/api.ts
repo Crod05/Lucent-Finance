@@ -33,6 +33,7 @@ import type {
   CategorySpend,
   DailyBriefing,
   DailyMission,
+  DuplicateTransactionError,
   HealthStatus,
   InsightsSummary,
   MissionActionResult,
@@ -252,7 +253,7 @@ export const createTransaction = async (transactionInput: TransactionInput, opti
 
 
 
-export const getCreateTransactionMutationOptions = <TError = ErrorType<unknown>,
+export const getCreateTransactionMutationOptions = <TError = ErrorType<DuplicateTransactionError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTransaction>>, TError,{data: BodyType<TransactionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof createTransaction>>, TError,{data: BodyType<TransactionInput>}, TContext> => {
 
@@ -281,12 +282,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CreateTransactionMutationResult = NonNullable<Awaited<ReturnType<typeof createTransaction>>>
     export type CreateTransactionMutationBody = BodyType<TransactionInput>
-    export type CreateTransactionMutationError = ErrorType<unknown>
+    export type CreateTransactionMutationError = ErrorType<DuplicateTransactionError>
 
     /**
  * @summary Create a transaction
  */
-export const useCreateTransaction = <TError = ErrorType<unknown>,
+export const useCreateTransaction = <TError = ErrorType<DuplicateTransactionError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof createTransaction>>, TError,{data: BodyType<TransactionInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof createTransaction>>,
@@ -400,7 +401,7 @@ export const updateTransaction = async (id: number,
 
 
 
-export const getUpdateTransactionMutationOptions = <TError = ErrorType<void>,
+export const getUpdateTransactionMutationOptions = <TError = ErrorType<void | DuplicateTransactionError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTransaction>>, TError,{id: number;data: BodyType<TransactionUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof updateTransaction>>, TError,{id: number;data: BodyType<TransactionUpdate>}, TContext> => {
 
@@ -429,12 +430,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type UpdateTransactionMutationResult = NonNullable<Awaited<ReturnType<typeof updateTransaction>>>
     export type UpdateTransactionMutationBody = BodyType<TransactionUpdate>
-    export type UpdateTransactionMutationError = ErrorType<void>
+    export type UpdateTransactionMutationError = ErrorType<void | DuplicateTransactionError>
 
     /**
  * @summary Update a transaction
  */
-export const useUpdateTransaction = <TError = ErrorType<void>,
+export const useUpdateTransaction = <TError = ErrorType<void | DuplicateTransactionError>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof updateTransaction>>, TError,{id: number;data: BodyType<TransactionUpdate>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof updateTransaction>>,

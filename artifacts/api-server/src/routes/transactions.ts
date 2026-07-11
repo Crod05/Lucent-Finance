@@ -1,4 +1,3 @@
-import { createHash } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, transactionsTable } from "@workspace/db";
@@ -8,6 +7,8 @@ import {
   completeMissionIfPending,
   completeBonusIfAssigned,
 } from "../lib/xp";
+import { computeFingerprint, isUniqueViolation } from "../lib/fingerprint";
+import { evaluateBudgetGuardian } from "../lib/budget-guardian";
 import {
   ListTransactionsResponse,
   CreateTransactionBody,
@@ -21,26 +22,6 @@ import {
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
-
-/**
- * Deterministic dedup fingerprint over (date, normalized description, amount,
- * type, accountId). Must stay in sync with the SQL backfill expression used
- * when the column was added.
- */
-function computeFingerprint(input: {
-  date: string;
-  description: string;
-  amount: number | string;
-  type: string;
-  accountId: number | null | undefined;
-}): string {
-  const desc = input.description.trim().toLowerCase().replace(/\s+/g, " ");
-  const amt = Number(input.amount).toFixed(2);
-  const account = input.accountId == null ? "" : String(input.accountId);
-  return createHash("sha256")
-    .update(`${input.date}|${desc}|${amt}|${input.type}|${account}`)
-    .digest("hex");
-}
 
 router.get("/transactions", async (req, res): Promise<void> => {
   const rows = await db.select().from(transactionsTable).orderBy(transactionsTable.createdAt);
@@ -69,10 +50,29 @@ router.post("/transactions", async (req, res): Promise<void> => {
     accountId: parsed.data.accountId,
   });
 
+  // ON CONFLICT DO NOTHING against the partial unique index on fingerprint:
+  // under concurrent identical requests exactly one insert wins; the rest
+  // return no row and are reported as explicit duplicates (409) — never a
+  // silent success.
   const [row] = await db
     .insert(transactionsTable)
     .values({ ...parsed.data, date: dateStr, amount: String(parsed.data.amount), fingerprint })
+    .onConflictDoNothing()
     .returning();
+
+  if (!row) {
+    const [existing] = await db
+      .select()
+      .from(transactionsTable)
+      .where(eq(transactionsTable.fingerprint, fingerprint));
+    res.status(409).json({
+      error:
+        "Duplicate transaction: an identical transaction (same date, description, amount, type, and account) already exists.",
+      duplicate: true,
+      ...(existing ? { existingId: existing.id } : {}),
+    });
+    return;
+  }
 
   // Award XP keyed on the fingerprint (not the row id): xp_events has a
   // unique (userId, eventType, sourceId) constraint, so re-logging an
@@ -92,6 +92,11 @@ router.post("/transactions", async (req, res): Promise<void> => {
     await completeMissionIfPending("log_transaction");
     await completeBonusIfAssigned("log_transaction", `transaction:${row.id}`);
   }
+
+  // A new transaction may complete the picture for last month's budgets;
+  // evaluate the one-time Budget Guardian badge (idempotent, completed
+  // months only).
+  await evaluateBudgetGuardian();
 
   res.status(201).json(CreateTransactionResponse.parse({ ...row, amount: Number(row.amount), createdAt: row.createdAt.toISOString() }));
 });
@@ -131,6 +136,15 @@ router.patch("/transactions/:id", async (req, res): Promise<void> => {
   }
   const updateData: Record<string, unknown> = { ...parsed.data };
   if (parsed.data.amount !== undefined) updateData.amount = String(parsed.data.amount);
+  // Zod coerces `date` to a Date object; normalize to the canonical
+  // YYYY-MM-DD string (same as the create path) so the stored value and the
+  // fingerprint input are identical to what a create would produce.
+  if (parsed.data.date !== undefined) {
+    updateData.date =
+      typeof parsed.data.date === "string"
+        ? parsed.data.date
+        : (parsed.data.date as Date).toISOString().slice(0, 10);
+  }
   // Keep the dedup fingerprint in sync with the fields it derives from.
   updateData.fingerprint = computeFingerprint({
     date: (updateData.date as string | undefined) ?? existing.date,
@@ -139,11 +153,32 @@ router.patch("/transactions/:id", async (req, res): Promise<void> => {
     type: parsed.data.type ?? existing.type,
     accountId: parsed.data.accountId !== undefined ? parsed.data.accountId : existing.accountId,
   });
-  const [row] = await db
-    .update(transactionsTable)
-    .set(updateData)
-    .where(eq(transactionsTable.id, params.data.id))
-    .returning();
+  let row;
+  try {
+    [row] = await db
+      .update(transactionsTable)
+      .set(updateData)
+      .where(eq(transactionsTable.id, params.data.id))
+      .returning();
+  } catch (err) {
+    // The recalculated fingerprint collided with another row's — the edit
+    // would make this transaction an exact duplicate. Explicit 409, keyed on
+    // the same partial unique index that guards creates.
+    if (isUniqueViolation(err)) {
+      const [existing] = await db
+        .select()
+        .from(transactionsTable)
+        .where(eq(transactionsTable.fingerprint, updateData.fingerprint as string));
+      res.status(409).json({
+        error:
+          "Duplicate transaction: this update would make the transaction identical to an existing one.",
+        duplicate: true,
+        ...(existing ? { existingId: existing.id } : {}),
+      });
+      return;
+    }
+    throw err;
+  }
   if (!row) {
     res.status(404).json({ error: "Transaction not found" });
     return;

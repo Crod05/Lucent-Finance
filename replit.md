@@ -5,6 +5,7 @@ A personal finance app (transactions, budgets, bills, accounts, insights) with a
 ## Run & Operate
 
 - `pnpm --filter @workspace/api-server run dev` — run the API server (port 5000)
+- `pnpm --filter @workspace/api-server run test` — run the API test suite (vitest; creates a scratch `lucent_vitest` DB from the checked-in migrations, never touches the dev DB)
 - `pnpm run typecheck` — full typecheck across all packages
 - `pnpm run build` — typecheck + build all packages
 - `pnpm --filter @workspace/api-spec run codegen` — regenerate API hooks and Zod schemas from the OpenAPI spec
@@ -33,7 +34,10 @@ A personal finance app (transactions, budgets, bills, accounts, insights) with a
 - **GETs are side-effect free.** Daily/bonus mission assignment is a pure function of the date (`missionForDate`, `bonusMissionTypeForDate` in `xp.ts`); rows are only materialized when a real action completes them. Mission completion happens exclusively in POST/PATCH routes, including the explicit intent endpoints `POST /budgets/reviewed` and `POST /insights/viewed`.
 - **Weekly challenge** is calendar-week based (Mon–Sun, UTC): 5 completed daily missions in the week award +50 XP once, keyed on `(weekly_challenge, weekStart)` in `xp_events`.
 - **Bonus missions persist** in `bonus_missions` (unique per user+date) with an `evidence_ref` pointing at the real transaction/bill; bonus XP (+15) is a separate idempotent event.
-- **Onboarding is immutable**: a conditional UPDATE (`onboarding_completed = false`) enforces one-time character creation → 409 on repeats. Input is trimmed + strictly validated (unknown fields → 400). The reset endpoint is registered only when `NODE_ENV !== "production"` (returns 403 in production) and the Settings "Replay" card renders only in dev builds.
+- **Onboarding is immutable**: a conditional UPDATE (`onboarding_completed = false`) enforces one-time character creation → 409 on repeats. Input is trimmed + strictly validated (unknown fields → 400). The onboarding reset is disabled by default: it responds 403 unless `NODE_ENV` is exactly `"development"` or `"test"` (`isOnboardingResetAllowed` in `api-server/src/lib/env.ts`); the Settings "Replay" card renders only in dev builds.
+- **Transaction dedup is DB-enforced**: `computeFingerprint` (`api-server/src/lib/fingerprint.ts`) hashes (date, normalized description, amount, type, accountId); a partial unique index (`transactions_fingerprint_unique`, migration `0001_fast_supernaut`) rejects duplicate non-null fingerprints even under concurrency. Duplicate creates and updates return an explicit 409 with `{duplicate: true, existingId}` — never a silent success. Updates recalculate the fingerprint from the merged fields.
+- **Budget Guardian** (`api-server/src/lib/budget-guardian.ts`) is a one-time badge for finishing a fully completed calendar month at or below every active budget for that month. Evaluated idempotently from action routes (transaction create, budgets reviewed) for the previous completed UTC month; never granted for the current/incomplete month or a month with no budgets. Caveat: refund/transfer semantics are not formally defined — refunds logged as income don't reduce `currentSpent`, so compliance may be miscounted until transaction semantics are formalized.
+- **UTC-midnight limitation**: all gamification dates ("today", Mon–Sun weeks, streaks, completed months) roll over at 00:00 UTC, not player-local time. Timezone support is NOT implemented; the date helpers in `api-server/src/lib/xp.ts` are the single place to thread a player timezone through later.
 
 ## Product
 
@@ -55,6 +59,8 @@ _Populate as you build — explicit user instructions worth remembering across s
 - The bill "pay" endpoint is `PATCH /api/bills/:id/pay` (not POST).
 
 ## SECURITY — shared-user exposure (launch blocker)
+
+> **⚠️ WARNING: any live deployment of this app is PUBLICLY WRITABLE.** Every visitor shares the single `default-user` account and can read AND modify everything. **Do not put real personal financial data into a deployed instance.** Demo/sample data only until authentication lands.
 
 The app has **no authentication**. Every route reads and writes data for the single hardcoded user `default-user`:
 

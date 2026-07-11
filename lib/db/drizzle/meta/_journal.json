@@ -8,6 +8,13 @@
       "when": 1783794505542,
       "tag": "0000_smart_kitty_pryde",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1783796865971,
+      "tag": "0001_fast_supernaut",
+      "breakpoints": true
     }
   ]
 }

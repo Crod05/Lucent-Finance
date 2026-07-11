@@ -33,6 +33,7 @@ export * from './dailyBriefing';
 export * from './dailyBriefingTimeOfDay';
 export * from './dailyMission';
 export * from './dailyMissionStatus';
+export * from './duplicateTransactionError';
 export * from './healthStatus';
 export * from './insightsSummary';
 export * from './missionActionResult';

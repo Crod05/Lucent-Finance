@@ -38,11 +38,11 @@ import {
   WEEKLY_TARGET,
   WEEKLY_XP,
 } from "../lib/xp";
+import { isOnboardingResetAllowed } from "../lib/env";
 
 const router: IRouter = Router();
 
 const DEFAULT_USER = "default-user";
-const IS_PRODUCTION = process.env.NODE_ENV === "production";
 
 // Estimated time-to-complete per mission type, shown in the briefing so a
 // player knows a mission is a quick micro-win.
@@ -82,7 +82,7 @@ const ALL_ACHIEVEMENTS = [
   {
     badgeKey: "budget_guardian",
     name: "Budget Guardian",
-    description: "Kept all budgets under their monthly limit",
+    description: "Completed a full month at or below every budget",
     icon: "Shield",
   },
   {
@@ -426,31 +426,31 @@ router.post("/gamification/onboarding", async (req, res): Promise<void> => {
   res.json(CompleteOnboardingResponse.parse(serializeProgress(updated)));
 });
 
-// Development/demo-only escape hatch. In production the route is not
-// registered at all — a catch-all below returns 403 so the contract is
-// explicit rather than a generic 404.
-if (!IS_PRODUCTION) {
-  router.post("/gamification/onboarding/reset", async (req, res): Promise<void> => {
-    await getOrCreateProgress();
-    const [updated] = await db
-      .update(userProgressTable)
-      .set({
-        onboardingCompleted: false,
-        name: null,
-        spawnPoint: null,
-        financialClass: null,
-        primaryFinancialConcern: null,
-      })
-      .where(eq(userProgressTable.userId, DEFAULT_USER))
-      .returning();
+// Development/test-only escape hatch. Disabled by default: the reset is
+// allowed only when NODE_ENV is exactly "development" or "test" (see
+// isOnboardingResetAllowed). Every other environment — "production", "prod",
+// "staging", casing variants, or unset — gets a 403. The check runs per
+// request so the gate follows the live environment, not boot-time state.
+router.post("/gamification/onboarding/reset", async (req, res): Promise<void> => {
+  if (!isOnboardingResetAllowed(process.env.NODE_ENV)) {
+    res.status(403).json({ error: "Onboarding reset is only available in development or test environments." });
+    return;
+  }
+  await getOrCreateProgress();
+  const [updated] = await db
+    .update(userProgressTable)
+    .set({
+      onboardingCompleted: false,
+      name: null,
+      spawnPoint: null,
+      financialClass: null,
+      primaryFinancialConcern: null,
+    })
+    .where(eq(userProgressTable.userId, DEFAULT_USER))
+    .returning();
 
-    req.log.info({ userId: DEFAULT_USER }, "onboarding reset");
-    res.json(ResetOnboardingResponse.parse(serializeProgress(updated)));
-  });
-} else {
-  router.post("/gamification/onboarding/reset", (req, res): void => {
-    res.status(403).json({ error: "Onboarding reset is not available in production." });
-  });
-}
+  req.log.info({ userId: DEFAULT_USER }, "onboarding reset");
+  res.json(ResetOnboardingResponse.parse(serializeProgress(updated)));
+});
 
 export default router;

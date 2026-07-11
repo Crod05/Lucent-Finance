@@ -31,6 +31,13 @@ export interface Transaction {
   createdAt: string;
 }
 
+export interface DuplicateTransactionError {
+  error: string;
+  duplicate: boolean;
+  /** ID of the already-existing transaction with the same fingerprint */
+  existingId?: number;
+}
+
 export type TransactionInputType = typeof TransactionInputType[keyof typeof TransactionInputType];
 
 

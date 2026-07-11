@@ -11,10 +11,12 @@ import {
 const DEFAULT_USER = "default-user";
 
 // ---------------------------------------------------------------------------
-// Dates. All gamification dates use UTC calendar dates (YYYY-MM-DD), matching
-// how transaction/mission dates are stored. Single-user app: there is no
-// per-player timezone yet; when real accounts land, these helpers are the one
-// place to thread a player timezone through.
+// Dates. KNOWN LIMITATION: all gamification dates use UTC midnight, not the
+// player's local time. "Today", week boundaries (Mon–Sun), streaks, and
+// completed-month checks all roll over at 00:00 UTC — a player west of UTC
+// sees the day flip in their evening; east of UTC, after their midnight.
+// Timezone support is NOT implemented. Single-user app: when real accounts
+// land, these helpers are the one place to thread a player timezone through.
 // ---------------------------------------------------------------------------
 
 export function todayStr(): string {

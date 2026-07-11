@@ -1,2 +1,2 @@
-- [Behavioral OS](behavioral-os.md) — Lucent Finance gamification: HYBRID class floor, real-backed-only missions, single-user model, weekly-window bounds.
-- [Gamification idempotency](gamification-idempotency.md) — rewards must be idempotent xp_events inserts; GETs never mutate; assignment is a pure function of the date, rows materialize on action.
+- [Gamification idempotency](gamification-idempotency.md) — every reward is one idempotent xp_events insert; GETs never write.
+- [Drizzle & testing](drizzle-and-testing.md) — relative drizzle config paths, hand-edited cleanup migrations verified on a pg_dump copy, vitest scratch-DB setup, ApiError shape, zod date coercion trap.
