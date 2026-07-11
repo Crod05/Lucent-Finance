@@ -1,6 +1,6 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
-import { db, transactionsTable } from "@workspace/db";
+import { db, transactionsTable, bonusMissionsTable } from "@workspace/db";
 import {
   awardXpForEvent,
   grantAchievementIfNew,
@@ -8,6 +8,7 @@ import {
   completeBonusIfAssigned,
 } from "../lib/xp";
 import { computeFingerprint, isUniqueViolation } from "../lib/fingerprint";
+import { transactionEvidenceRef } from "../lib/evidence";
 import { evaluateBudgetGuardian } from "../lib/budget-guardian";
 import {
   ListTransactionsResponse,
@@ -90,7 +91,7 @@ router.post("/transactions", async (req, res): Promise<void> => {
       "Logged your very first transaction"
     );
     await completeMissionIfPending("log_transaction");
-    await completeBonusIfAssigned("log_transaction", `transaction:${row.id}`);
+    await completeBonusIfAssigned("log_transaction", transactionEvidenceRef(row.id));
   }
 
   // A new transaction may complete the picture for last month's budgets;
@@ -192,7 +193,22 @@ router.delete("/transactions/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [row] = await db.delete(transactionsTable).where(eq(transactionsTable.id, params.data.id)).returning();
+  // Runtime evidence-integrity protection: deleting a transaction must not
+  // leave any bonus mission pointing at a row that no longer exists. The
+  // evidence is genuinely gone, so the reference is cleared (never remapped
+  // to an unrelated transaction) atomically with the delete.
+  const row = await db.transaction(async (tx) => {
+    const [deleted] = await tx
+      .delete(transactionsTable)
+      .where(eq(transactionsTable.id, params.data.id))
+      .returning();
+    if (!deleted) return undefined;
+    await tx
+      .update(bonusMissionsTable)
+      .set({ evidenceRef: null })
+      .where(eq(bonusMissionsTable.evidenceRef, transactionEvidenceRef(deleted.id)));
+    return deleted;
+  });
   if (!row) {
     res.status(404).json({ error: "Transaction not found" });
     return;

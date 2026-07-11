@@ -1,0 +1,59 @@
+Please investigate and address the bonus-mission evidence-reference
+risk identified in migration 0001_fast_supernaut.sql.
+
+Do not add unrelated features.
+
+1. Audit current data
+- Find every bonus_missions.evidence_ref matching "transaction:<id>".
+- Verify whether each referenced transaction row still exists.
+- Report:
+  - total transaction evidence references
+  - valid references
+  - orphaned references
+- Do not modify data before reporting the findings.
+
+2. Determine migration status
+- Confirm which databases have already applied
+  0001_fast_supernaut.sql.
+- Confirm whether this is still a pre-production migration that can
+  safely be amended, or whether migration history must remain immutable.
+
+3. If 0001 can safely be amended before release
+- Update the duplicate cleanup so that, before deleting a duplicate
+  transaction, every bonus_missions evidence reference pointing to the
+  duplicate ID is remapped to the surviving lowest-ID transaction.
+- The survivor must be selected from the same fingerprint group.
+- Ensure the evidence-reference update happens before deletion.
+- Rebuild a scratch database from 0000 + amended 0001.
+- Test an upgrade database containing:
+  - one survivor transaction
+  - multiple duplicate transactions
+  - bonus missions referencing both survivor and deleted duplicate IDs
+- Verify all references point to the survivor after migration.
+
+4. If 0001 must remain immutable
+- Do not edit the applied migration.
+- Add a new checked-in integrity migration that detects orphaned
+  transaction evidence references.
+- Where a reliable survivor mapping can be reconstructed, remap it.
+- Where it cannot be reconstructed safely, set the invalid reference to
+  NULL and document why.
+- Do not guess or attach evidence to an unrelated transaction.
+
+5. Add runtime integrity protection
+- Add a reusable validator for transaction evidence references.
+- Add tests confirming:
+  - valid references remain unchanged
+  - duplicate cleanup preserves or safely repairs evidence references
+  - no bonus mission points to a deleted transaction after the tested
+    migration path
+
+After implementation:
+- Run all tests and typecheck.
+- Verify migrations from a fresh database and an upgrade-style database.
+- Provide:
+  - audit findings
+  - chosen migration strategy and rationale
+  - migration files changed or added
+  - test results
+  - commit hash

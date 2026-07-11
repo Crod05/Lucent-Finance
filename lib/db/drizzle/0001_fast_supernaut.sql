@@ -7,6 +7,28 @@
 -- Inspection of the live database on 2026-07-11 found ZERO duplicate
 -- non-null fingerprints, so on that data this DELETE is a no-op; it is kept
 -- so the migration is safe against any database state.
+--
+-- Before deleting duplicates, remap any bonus_missions evidence reference
+-- ("transaction:<id>") that points at a soon-to-be-deleted duplicate onto the
+-- surviving lowest-id transaction of the SAME fingerprint group, so no bonus
+-- mission is left referencing a deleted row. (Audit on 2026-07-11 found zero
+-- transaction evidence references in the live database, so this too is a
+-- no-op on that data; it protects any other database state.)
+UPDATE "bonus_missions" bm
+SET "evidence_ref" = 'transaction:' || s."survivor_id"::text
+FROM (
+  SELECT t."id" AS dup_id, g."survivor_id"
+  FROM "transactions" t
+  JOIN (
+    SELECT "fingerprint", MIN("id") AS survivor_id
+    FROM "transactions"
+    WHERE "fingerprint" IS NOT NULL
+    GROUP BY "fingerprint"
+  ) g ON g."fingerprint" = t."fingerprint"
+  WHERE t."id" <> g."survivor_id"
+) s
+WHERE bm."evidence_ref" = 'transaction:' || s."dup_id"::text;
+--> statement-breakpoint
 DELETE FROM "transactions" t
 USING "transactions" d
 WHERE t."fingerprint" IS NOT NULL
