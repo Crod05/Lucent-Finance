@@ -1,1 +1,2 @@
 - [Behavioral OS](behavioral-os.md) — Lucent Finance gamification: HYBRID class floor, real-backed-only missions, single-user model, weekly-window bounds.
+- [Gamification idempotency](gamification-idempotency.md) — rewards must be idempotent xp_events inserts; GETs never mutate; assignment is a pure function of the date, rows materialize on action.

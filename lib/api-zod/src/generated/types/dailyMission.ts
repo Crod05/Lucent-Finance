@@ -8,7 +8,11 @@
 import type { DailyMissionStatus } from './dailyMissionStatus';
 
 export interface DailyMission {
-  id: number;
+  /**
+     * Null until the mission row is materialized by a real action.
+     * @nullable
+     */
+  id: number | null;
   userId: string;
   date: string;
   missionType: string;

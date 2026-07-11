@@ -35,6 +35,7 @@ import type {
   DailyMission,
   HealthStatus,
   InsightsSummary,
+  MissionActionResult,
   MonthlyTrend,
   OnboardingInput,
   Scorecard,
@@ -2166,7 +2167,7 @@ export const completeOnboarding = async (onboardingInput: OnboardingInput, optio
 
 
 
-export const getCompleteOnboardingMutationOptions = <TError = ErrorType<unknown>,
+export const getCompleteOnboardingMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<OnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<OnboardingInput>}, TContext> => {
 
@@ -2195,12 +2196,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type CompleteOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof completeOnboarding>>>
     export type CompleteOnboardingMutationBody = BodyType<OnboardingInput>
-    export type CompleteOnboardingMutationError = ErrorType<unknown>
+    export type CompleteOnboardingMutationError = ErrorType<void>
 
     /**
  * @summary Complete character creation onboarding
  */
-export const useCompleteOnboarding = <TError = ErrorType<unknown>,
+export const useCompleteOnboarding = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof completeOnboarding>>, TError,{data: BodyType<OnboardingInput>}, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof completeOnboarding>>,
@@ -2220,7 +2221,7 @@ export const getResetOnboardingUrl = () => {
 }
 
 /**
- * @summary Reset onboarding so character creation can be replayed (demo)
+ * @summary Reset onboarding so character creation can be replayed (development/demo only)
  */
 export const resetOnboarding = async ( options?: RequestInit): Promise<UserProgress> => {
 
@@ -2236,7 +2237,7 @@ export const resetOnboarding = async ( options?: RequestInit): Promise<UserProgr
 
 
 
-export const getResetOnboardingMutationOptions = <TError = ErrorType<unknown>,
+export const getResetOnboardingMutationOptions = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetOnboarding>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
 ): UseMutationOptions<Awaited<ReturnType<typeof resetOnboarding>>, TError,void, TContext> => {
 
@@ -2265,12 +2266,12 @@ const {mutation: mutationOptions, request: requestOptions} = options ?
 
     export type ResetOnboardingMutationResult = NonNullable<Awaited<ReturnType<typeof resetOnboarding>>>
 
-    export type ResetOnboardingMutationError = ErrorType<unknown>
+    export type ResetOnboardingMutationError = ErrorType<void>
 
     /**
- * @summary Reset onboarding so character creation can be replayed (demo)
+ * @summary Reset onboarding so character creation can be replayed (development/demo only)
  */
-export const useResetOnboarding = <TError = ErrorType<unknown>,
+export const useResetOnboarding = <TError = ErrorType<void>,
     TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof resetOnboarding>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
  ): UseMutationResult<
         Awaited<ReturnType<typeof resetOnboarding>>,
@@ -2279,5 +2280,145 @@ export const useResetOnboarding = <TError = ErrorType<unknown>,
         TContext
       > => {
       return useMutation(getResetOnboardingMutationOptions(options));
+    }
+
+export const getMarkBudgetsReviewedUrl = () => {
+
+
+
+
+  return `/api/budgets/reviewed`
+}
+
+/**
+ * @summary Record a deliberate budget review (completes the review_budget mission if assigned today)
+ */
+export const markBudgetsReviewed = async ( options?: RequestInit): Promise<MissionActionResult> => {
+
+  return customFetch<MissionActionResult>(getMarkBudgetsReviewedUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getMarkBudgetsReviewedMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markBudgetsReviewed>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markBudgetsReviewed>>, TError,void, TContext> => {
+
+const mutationKey = ['markBudgetsReviewed'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markBudgetsReviewed>>, void> = () => {
+
+
+          return  markBudgetsReviewed(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkBudgetsReviewedMutationResult = NonNullable<Awaited<ReturnType<typeof markBudgetsReviewed>>>
+
+    export type MarkBudgetsReviewedMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Record a deliberate budget review (completes the review_budget mission if assigned today)
+ */
+export const useMarkBudgetsReviewed = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markBudgetsReviewed>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markBudgetsReviewed>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getMarkBudgetsReviewedMutationOptions(options));
+    }
+
+export const getMarkInsightsViewedUrl = () => {
+
+
+
+
+  return `/api/insights/viewed`
+}
+
+/**
+ * @summary Record a deliberate insights view (completes the check_insights mission if assigned today)
+ */
+export const markInsightsViewed = async ( options?: RequestInit): Promise<MissionActionResult> => {
+
+  return customFetch<MissionActionResult>(getMarkInsightsViewedUrl(),
+  {
+    ...options,
+    method: 'POST'
+
+
+  }
+);}
+
+
+
+
+export const getMarkInsightsViewedMutationOptions = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markInsightsViewed>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+): UseMutationOptions<Awaited<ReturnType<typeof markInsightsViewed>>, TError,void, TContext> => {
+
+const mutationKey = ['markInsightsViewed'];
+const {mutation: mutationOptions, request: requestOptions} = options ?
+      options.mutation && 'mutationKey' in options.mutation && options.mutation.mutationKey ?
+      options
+      : {...options, mutation: {...options.mutation, mutationKey}}
+      : {mutation: { mutationKey, }, request: undefined};
+
+
+
+
+      const mutationFn: MutationFunction<Awaited<ReturnType<typeof markInsightsViewed>>, void> = () => {
+
+
+          return  markInsightsViewed(requestOptions)
+        }
+
+
+
+
+
+
+  return  { mutationFn, ...mutationOptions }}
+
+    export type MarkInsightsViewedMutationResult = NonNullable<Awaited<ReturnType<typeof markInsightsViewed>>>
+
+    export type MarkInsightsViewedMutationError = ErrorType<unknown>
+
+    /**
+ * @summary Record a deliberate insights view (completes the check_insights mission if assigned today)
+ */
+export const useMarkInsightsViewed = <TError = ErrorType<unknown>,
+    TContext = unknown>(options?: { mutation?:UseMutationOptions<Awaited<ReturnType<typeof markInsightsViewed>>, TError,void, TContext>, request?: SecondParameter<typeof customFetch>}
+ ): UseMutationResult<
+        Awaited<ReturnType<typeof markInsightsViewed>>,
+        TError,
+        void,
+        TContext
+      > => {
+      return useMutation(getMarkInsightsViewedMutationOptions(options));
     }
 

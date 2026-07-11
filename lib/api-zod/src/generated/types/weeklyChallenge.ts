@@ -12,4 +12,7 @@ export interface WeeklyChallenge {
   current: number;
   target: number;
   xpReward: number;
+  /** ISO date (Monday) the current challenge week started. */
+  weekStart: string;
+  completed: boolean;
 }

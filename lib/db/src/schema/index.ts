@@ -4,5 +4,6 @@ export * from "./bills";
 export * from "./accounts";
 export * from "./user_progress";
 export * from "./daily_missions";
+export * from "./bonus_missions";
 export * from "./earned_achievements";
 export * from "./xp_events";

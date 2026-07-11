@@ -2,7 +2,12 @@ import { createHash } from "node:crypto";
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, transactionsTable } from "@workspace/db";
-import { awardXpForEvent, grantAchievementIfNew, completeMissionIfPending } from "../lib/xp";
+import {
+  awardXpForEvent,
+  grantAchievementIfNew,
+  completeMissionIfPending,
+  completeBonusIfAssigned,
+} from "../lib/xp";
 import {
   ListTransactionsResponse,
   CreateTransactionBody,
@@ -76,13 +81,16 @@ router.post("/transactions", async (req, res): Promise<void> => {
 
   if (award.xpAwarded > 0) {
     // Genuinely new transaction: grant first-transaction achievement if new;
-    // complete today's mission if it matches.
+    // complete today's mission if it matches; complete the day's bonus
+    // mission if log_transaction is today's assigned bonus. Action XP,
+    // mission XP, and bonus XP are all separate idempotent xp_events.
     await grantAchievementIfNew(
       "first_transaction",
       "First Transaction",
       "Logged your very first transaction"
     );
     await completeMissionIfPending("log_transaction");
+    await completeBonusIfAssigned("log_transaction", `transaction:${row.id}`);
   }
 
   res.status(201).json(CreateTransactionResponse.parse({ ...row, amount: Number(row.amount), createdAt: row.createdAt.toISOString() }));

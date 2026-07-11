@@ -1,0 +1,87 @@
+Please fix the following issues identified by code review.
+Do not add unrelated product features and do not remove any existing
+working functionality.
+
+1. Lock down onboarding reset
+- POST /gamification/onboarding/reset must not be usable in production.
+- Return 403 when NODE_ENV === "production".
+- If practical, do not register the route at all in production.
+- Keep it available only for local development or an explicitly enabled
+  demo environment.
+- Do not expose any reset control in the production UI.
+
+2. Make completed onboarding immutable
+- Once onboarding_completed is true, POST /gamification/onboarding must
+  not overwrite name, spawn_point, primary_financial_concern, starting
+  class, or other onboarding fields.
+- Return HTTP 409 with a clear message when onboarding is submitted again.
+- Only the protected development/demo reset path may clear
+  onboarding_completed.
+- Normal profile edits, if supported later, must use a separate endpoint
+  and must never modify earned progression.
+
+3. Implement a real calendar-week challenge
+- Define the challenge as five completed primary daily missions during
+  the player's calendar week.
+- Use explicit week boundaries rather than a rolling seven-day window.
+- Store or derive a stable week_start_date using the player's timezone.
+- Persist weekly challenge completion state.
+- Award the advertised +50 XP once when progress reaches 5.
+- Use an idempotency key such as:
+  weekly_challenge:{userId}:{weekStartDate}
+- Repeated reads or refreshes must never award XP again.
+
+4. Implement persistent bonus-mission assignment and reward state
+- Persist which bonus mission is assigned to the player for each date.
+- Store mission slot, mission type, XP reward, completion status,
+  completion timestamp, and evidence reference where available.
+- Award the advertised bonus XP only when the specifically assigned
+  underlying action occurs.
+- Award normal action XP and bonus XP as separate idempotent XP events.
+- Use a unique key such as:
+  bonus_mission:{userId}:{localDate}:{missionType}
+- Refreshing or repeating the same action must not award bonus XP twice.
+
+5. Remove all mutations from GET routes
+- GET /budgets must not complete review_budget.
+- GET /insights/trends must not complete check_insights.
+- Audit all other GET routes and ensure none create, update, complete,
+  or award anything.
+
+6. Add explicit intent/action endpoints safely
+- Add POST endpoints for deliberate actions, such as:
+  POST /budgets/reviewed
+  POST /insights/viewed
+- The server must verify that the corresponding mission was assigned,
+  is eligible today, and has not already been completed.
+- Completion and XP awarding must be atomic and idempotent.
+- A client refresh or repeated request must not create additional rewards.
+
+7. Harden onboarding input
+- Trim the name on the server.
+- Enforce reasonable minimum and maximum lengths.
+- Validate all onboarding enum values server-side.
+- Reject unknown fields or invalid values with clear errors.
+
+8. Add reproducible database migrations
+- Create checked-in Drizzle migrations for all new or changed tables,
+  columns, constraints, and indexes.
+- Do not rely solely on an unrecorded schema push.
+- Confirm migrations work against a fresh database.
+
+9. Verify shared-user exposure
+- Report which production routes currently use "default-user".
+- Do not redesign authentication in this fix unless required, but clearly
+  identify any routes through which public visitors could modify shared
+  application data.
+- Document authentication and per-user authorization as a blocker before
+  real public-user launch.
+
+After implementation:
+- Run typecheck.
+- Run available tests.
+- Verify weekly and bonus XP cannot be awarded twice.
+- Verify all GET requests are side-effect free.
+- Confirm the application starts successfully.
+- Push to Crod05/Lucent-Finance and provide the commit hash plus a concise
+  list of files and migrations changed.

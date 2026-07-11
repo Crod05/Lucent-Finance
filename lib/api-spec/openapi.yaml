@@ -516,12 +516,16 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserProgress"
+        "400":
+          description: Invalid onboarding input
+        "409":
+          description: Onboarding already completed and is immutable
 
   /gamification/onboarding/reset:
     post:
       operationId: resetOnboarding
       tags: [gamification]
-      summary: Reset onboarding so character creation can be replayed (demo)
+      summary: Reset onboarding so character creation can be replayed (development/demo only)
       responses:
         "200":
           description: Updated user progress
@@ -529,6 +533,34 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/UserProgress"
+        "403":
+          description: Not available in production
+
+  /budgets/reviewed:
+    post:
+      operationId: markBudgetsReviewed
+      tags: [budgets]
+      summary: Record a deliberate budget review (completes the review_budget mission if assigned today)
+      responses:
+        "200":
+          description: Mission action result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MissionActionResult"
+
+  /insights/viewed:
+    post:
+      operationId: markInsightsViewed
+      tags: [insights]
+      summary: Record a deliberate insights view (completes the check_insights mission if assigned today)
+      responses:
+        "200":
+          description: Mission action result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/MissionActionResult"
 
 components:
   schemas:
@@ -882,7 +914,8 @@ components:
       required: [id, userId, date, missionType, title, description, xpReward, status]
       properties:
         id:
-          type: integer
+          type: ["integer", "null"]
+          description: Null until the mission row is materialized by a real action.
         userId:
           type: string
         date:
@@ -952,6 +985,7 @@ components:
         name:
           type: string
           minLength: 1
+          maxLength: 60
         spawnPoint:
           type: string
           enum:
@@ -1000,7 +1034,7 @@ components:
 
     WeeklyChallenge:
       type: object
-      required: [title, description, current, target, xpReward]
+      required: [title, description, current, target, xpReward, weekStart, completed]
       properties:
         title:
           type: string
@@ -1011,6 +1045,20 @@ components:
         target:
           type: integer
         xpReward:
+          type: integer
+        weekStart:
+          type: string
+          description: ISO date (Monday) the current challenge week started.
+        completed:
+          type: boolean
+
+    MissionActionResult:
+      type: object
+      required: [missionCompleted, xpAwarded]
+      properties:
+        missionCompleted:
+          type: boolean
+        xpAwarded:
           type: integer
 
     TodaysInsight:

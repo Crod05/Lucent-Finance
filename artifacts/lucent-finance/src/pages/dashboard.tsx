@@ -162,7 +162,11 @@ export default function Dashboard() {
                     <p className="text-sm font-medium leading-tight">{briefing.weeklyChallenge.title}</p>
                     <div className="flex justify-between text-xs text-muted-foreground mt-2 mb-1">
                       <span>{briefing.weeklyChallenge.current}/{briefing.weeklyChallenge.target} missions</span>
-                      <span>+{briefing.weeklyChallenge.xpReward} XP</span>
+                      <span className={briefing.weeklyChallenge.completed ? "text-emerald-500 font-medium" : undefined}>
+                        {briefing.weeklyChallenge.completed
+                          ? `+${briefing.weeklyChallenge.xpReward} XP earned`
+                          : `+${briefing.weeklyChallenge.xpReward} XP`}
+                      </span>
                     </div>
                     <Progress
                       value={(briefing.weeklyChallenge.current / briefing.weeklyChallenge.target) * 100}

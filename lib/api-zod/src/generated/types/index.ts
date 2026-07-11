@@ -35,6 +35,7 @@ export * from './dailyMission';
 export * from './dailyMissionStatus';
 export * from './healthStatus';
 export * from './insightsSummary';
+export * from './missionActionResult';
 export * from './monthlyTrend';
 export * from './onboardingInput';
 export * from './onboardingInputFinancialClass';

@@ -467,7 +467,7 @@ export const GetProgressResponse = zod.object({
  * @summary Get or generate today's daily mission
  */
 export const GetTodayMissionResponse = zod.object({
-  "id": zod.number(),
+  "id": zod.number().nullable().describe('Null until the mission row is materialized by a real action.'),
   "userId": zod.string(),
   "date": zod.string(),
   "missionType": zod.string(),
@@ -552,7 +552,9 @@ export const GetBriefingResponse = zod.object({
   "description": zod.string(),
   "current": zod.number(),
   "target": zod.number(),
-  "xpReward": zod.number()
+  "xpReward": zod.number(),
+  "weekStart": zod.string().describe('ISO date (Monday) the current challenge week started.'),
+  "completed": zod.boolean()
 }),
   "todaysInsight": zod.object({
   "title": zod.string(),
@@ -564,11 +566,12 @@ export const GetBriefingResponse = zod.object({
 /**
  * @summary Complete character creation onboarding
  */
+export const completeOnboardingBodyNameMax = 60;
 
 
 
 export const CompleteOnboardingBody = zod.object({
-  "name": zod.string().min(1),
+  "name": zod.string().min(1).max(completeOnboardingBodyNameMax),
   "spawnPoint": zod.enum(['Student', 'First Job', 'Paycheck to Paycheck', 'Stable Career', 'Homeowner', 'Business Owner', 'Investor', 'Financial Rebuild', 'Early Retirement']),
   "primaryFinancialConcern": zod.enum(['Debt', 'Living paycheck to paycheck', 'Not saving enough', 'Not investing', 'Supporting family', 'Buying a home', 'Retirement', 'Feeling disorganized', 'I\'m not sure yet']),
   "financialClass": zod.enum(['Survivor', 'Builder', 'Investor', 'Strategist', 'Owner', 'Legacy Builder'])
@@ -596,7 +599,7 @@ export const CompleteOnboardingResponse = zod.object({
 
 
 /**
- * @summary Reset onboarding so character creation can be replayed (demo)
+ * @summary Reset onboarding so character creation can be replayed (development/demo only)
  */
 export const ResetOnboardingResponse = zod.object({
   "userId": zod.string(),
@@ -616,6 +619,24 @@ export const ResetOnboardingResponse = zod.object({
   "nextClass": zod.string().nullish(),
   "classProgress": zod.number(),
   "xpToNextClass": zod.number()
+})
+
+
+/**
+ * @summary Record a deliberate budget review (completes the review_budget mission if assigned today)
+ */
+export const MarkBudgetsReviewedResponse = zod.object({
+  "missionCompleted": zod.boolean(),
+  "xpAwarded": zod.number()
+})
+
+
+/**
+ * @summary Record a deliberate insights view (completes the check_insights mission if assigned today)
+ */
+export const MarkInsightsViewedResponse = zod.object({
+  "missionCompleted": zod.boolean(),
+  "xpAwarded": zod.number()
 })
 
 

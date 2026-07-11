@@ -1,7 +1,12 @@
 import { Router, type IRouter } from "express";
 import { and, eq, ne } from "drizzle-orm";
 import { db, billsTable } from "@workspace/db";
-import { awardXpForEvent, grantAchievementIfNew, completeMissionIfPending } from "../lib/xp";
+import {
+  awardXpForEvent,
+  grantAchievementIfNew,
+  completeMissionIfPending,
+  completeBonusIfAssigned,
+} from "../lib/xp";
 import {
   ListBillsResponse,
   CreateBillBody,
@@ -110,10 +115,13 @@ router.patch("/bills/:id/pay", async (req, res): Promise<void> => {
   }
 
   // Award XP for paying a bill (idempotent per bill — repeat pay calls don't double-award);
-  // grant bill-slayer achievement if new; complete today's mission if it matches
+  // grant bill-slayer achievement if new; complete today's mission if it
+  // matches; complete the day's bonus mission if pay_bill is today's assigned
+  // bonus. Action XP, mission XP, and bonus XP are separate idempotent events.
   await awardXpForEvent("bill_paid", String(row.id), 15);
   await grantAchievementIfNew("bill_slayer", "Bill Slayer", "Marked your first bill as paid");
   await completeMissionIfPending("pay_bill");
+  await completeBonusIfAssigned("pay_bill", `bill:${row.id}`);
 
   res.json(MarkBillPaidResponse.parse(mapBill(row)));
 });

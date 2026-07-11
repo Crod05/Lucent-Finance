@@ -119,22 +119,24 @@ export default function Settings() {
               </div>
             </div>
           )}
-          <div className="flex items-center justify-between border-t border-border/50 pt-6">
-            <div className="space-y-0.5">
-              <Label className="text-base">Replay Character Creation</Label>
-              <p className="text-sm text-muted-foreground">
-                Reset your profile and go through onboarding again from scratch.
-              </p>
+          {import.meta.env.DEV && (
+            <div className="flex items-center justify-between border-t border-border/50 pt-6">
+              <div className="space-y-0.5">
+                <Label className="text-base">Replay Character Creation</Label>
+                <p className="text-sm text-muted-foreground">
+                  Development only: reset your profile and go through onboarding again.
+                </p>
+              </div>
+              <Button
+                variant="outline"
+                onClick={replayCharacterCreation}
+                disabled={resetOnboarding.isPending}
+              >
+                <RotateCcw className="w-4 h-4 mr-2" />
+                {resetOnboarding.isPending ? "Resetting..." : "Replay"}
+              </Button>
             </div>
-            <Button
-              variant="outline"
-              onClick={replayCharacterCreation}
-              disabled={resetOnboarding.isPending}
-            >
-              <RotateCcw className="w-4 h-4 mr-2" />
-              {resetOnboarding.isPending ? "Resetting..." : "Replay"}
-            </Button>
-          </div>
+          )}
         </CardContent>
       </Card>
     </div>

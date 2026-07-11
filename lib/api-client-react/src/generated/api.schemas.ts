@@ -318,7 +318,11 @@ export const DailyMissionStatus = {
 } as const;
 
 export interface DailyMission {
-  id: number;
+  /**
+     * Null until the mission row is materialized by a real action.
+     * @nullable
+     */
+  id: number | null;
   userId: string;
   date: string;
   missionType: string;
@@ -405,7 +409,10 @@ export const OnboardingInputFinancialClass = {
 } as const;
 
 export interface OnboardingInput {
-  /** @minLength 1 */
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
   name: string;
   spawnPoint: OnboardingInputSpawnPoint;
   primaryFinancialConcern: OnboardingInputPrimaryFinancialConcern;
@@ -435,6 +442,14 @@ export interface WeeklyChallenge {
   current: number;
   target: number;
   xpReward: number;
+  /** ISO date (Monday) the current challenge week started. */
+  weekStart: string;
+  completed: boolean;
+}
+
+export interface MissionActionResult {
+  missionCompleted: boolean;
+  xpAwarded: number;
 }
 
 export interface TodaysInsight {

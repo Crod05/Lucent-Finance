@@ -7,6 +7,7 @@ import {
   GetSpendingByCategoryResponse,
   GetMonthlyTrendsResponse,
   GetUpcomingBillsResponse,
+  MarkInsightsViewedResponse,
 } from "@workspace/api-zod";
 
 const router: IRouter = Router();
@@ -116,11 +117,17 @@ router.get("/insights/trends", async (req, res): Promise<void> => {
     a.year !== b.year ? a.year - b.year : a.month - b.month
   );
 
-  // Viewing the Insights page (trends is only fetched there) is the evidence
-  // for the check_insights mission.
-  await completeMissionIfPending("check_insights");
-
   res.json(GetMonthlyTrendsResponse.parse(result));
+});
+
+// Deliberate intent endpoint: the client posts here when the player actually
+// views the Insights page. The server verifies the check_insights mission is
+// today's assignment and still pending; completion + XP are atomic and
+// idempotent inside completeMissionIfPending, so refreshes or repeated posts
+// can never double-award.
+router.post("/insights/viewed", async (req, res): Promise<void> => {
+  const result = await completeMissionIfPending("check_insights");
+  res.json(MarkInsightsViewedResponse.parse(result));
 });
 
 router.get("/insights/upcoming-bills", async (req, res): Promise<void> => {

@@ -1,5 +1,13 @@
-import { useState } from "react";
-import { useListBudgets, useDeleteBudget, getListBudgetsQueryKey } from "@workspace/api-client-react";
+import { useState, useEffect, useRef } from "react";
+import {
+  useListBudgets,
+  useDeleteBudget,
+  getListBudgetsQueryKey,
+  useMarkBudgetsReviewed,
+  getGetProgressQueryKey,
+  getGetBriefingQueryKey,
+  getGetTodayMissionQueryKey,
+} from "@workspace/api-client-react";
 import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -15,6 +23,26 @@ export default function Budgets() {
   const queryClient = useQueryClient();
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedBudget, setSelectedBudget] = useState<any>(null);
+  const markReviewed = useMarkBudgetsReviewed();
+  const reviewedFired = useRef(false);
+
+  // Deliberate intent signal: visiting the Budgets page posts to
+  // /budgets/reviewed exactly once per mount. The server decides whether the
+  // review_budget mission is assigned/pending — repeats never double-award.
+  useEffect(() => {
+    if (reviewedFired.current) return;
+    reviewedFired.current = true;
+    markReviewed.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.missionCompleted) {
+          queryClient.invalidateQueries({ queryKey: getGetProgressQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetBriefingQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetTodayMissionQueryKey() });
+        }
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleDelete = async (id: number) => {
     if (confirm("Are you sure?")) {

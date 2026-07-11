@@ -10,7 +10,10 @@ import type { OnboardingInputPrimaryFinancialConcern } from './onboardingInputPr
 import type { OnboardingInputSpawnPoint } from './onboardingInputSpawnPoint';
 
 export interface OnboardingInput {
-  /** @minLength 1 */
+  /**
+     * @minLength 1
+     * @maxLength 60
+     */
   name: string;
   spawnPoint: OnboardingInputSpawnPoint;
   primaryFinancialConcern: OnboardingInputPrimaryFinancialConcern;

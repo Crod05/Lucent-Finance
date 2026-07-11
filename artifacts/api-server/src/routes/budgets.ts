@@ -4,6 +4,7 @@ import { db, budgetsTable } from "@workspace/db";
 import { completeMissionIfPending } from "../lib/xp";
 import {
   ListBudgetsResponse,
+  MarkBudgetsReviewedResponse,
   CreateBudgetBody,
   CreateBudgetResponse,
   UpdateBudgetParams,
@@ -25,12 +26,17 @@ function mapBudget(r: typeof budgetsTable.$inferSelect) {
 
 router.get("/budgets", async (req, res): Promise<void> => {
   const rows = await db.select().from(budgetsTable).orderBy(budgetsTable.createdAt);
-
-  // Visiting the Budgets page (this list is only fetched there) is the
-  // evidence for the review_budget mission.
-  await completeMissionIfPending("review_budget");
-
   res.json(ListBudgetsResponse.parse(rows.map(mapBudget)));
+});
+
+// Deliberate intent endpoint: the client posts here when the player actually
+// views the Budgets page. The server verifies the review_budget mission is
+// today's assignment and still pending; completion + XP are atomic and
+// idempotent inside completeMissionIfPending, so refreshes or repeated posts
+// can never double-award.
+router.post("/budgets/reviewed", async (req, res): Promise<void> => {
+  const result = await completeMissionIfPending("review_budget");
+  res.json(MarkBudgetsReviewedResponse.parse(result));
 });
 
 router.post("/budgets", async (req, res): Promise<void> => {

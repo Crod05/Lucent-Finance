@@ -1,4 +1,13 @@
-import { useGetSpendingByCategory, useGetMonthlyTrends } from "@workspace/api-client-react";
+import { useEffect, useRef } from "react";
+import {
+  useGetSpendingByCategory,
+  useGetMonthlyTrends,
+  useMarkInsightsViewed,
+  getGetProgressQueryKey,
+  getGetBriefingQueryKey,
+  getGetTodayMissionQueryKey,
+} from "@workspace/api-client-react";
+import { useQueryClient } from "@tanstack/react-query";
 import { formatCurrency } from "@/lib/format";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -21,6 +30,27 @@ import {
 export default function Insights() {
   const { data: categoryData, isLoading: loadingCategories } = useGetSpendingByCategory();
   const { data: trendData, isLoading: loadingTrends } = useGetMonthlyTrends();
+  const queryClient = useQueryClient();
+  const markViewed = useMarkInsightsViewed();
+  const viewedFired = useRef(false);
+
+  // Deliberate intent signal: visiting the Insights page posts to
+  // /insights/viewed exactly once per mount. The server decides whether the
+  // check_insights mission is assigned/pending — repeats never double-award.
+  useEffect(() => {
+    if (viewedFired.current) return;
+    viewedFired.current = true;
+    markViewed.mutate(undefined, {
+      onSuccess: (result) => {
+        if (result.missionCompleted) {
+          queryClient.invalidateQueries({ queryKey: getGetProgressQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetBriefingQueryKey() });
+          queryClient.invalidateQueries({ queryKey: getGetTodayMissionQueryKey() });
+        }
+      },
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Format trend data for display
   const formattedTrends = trendData?.map(t => ({
