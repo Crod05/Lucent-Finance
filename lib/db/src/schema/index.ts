@@ -1,4 +1,5 @@
 export * from "./transactions";
+export * from "./transaction_allocations";
 export * from "./budgets";
 export * from "./bills";
 export * from "./accounts";

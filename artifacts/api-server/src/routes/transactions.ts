@@ -12,6 +12,12 @@ import { transactionEvidenceRef } from "../lib/evidence";
 import { evaluateBudgetGuardianInTx } from "../lib/budget-guardian";
 import { failpoint } from "../lib/failpoints";
 import {
+  evaluateTransactionSemantics,
+  type TransactionClassification,
+  type ClassificationStatus,
+} from "../lib/transaction-semantics";
+
+import {
   ListTransactionsResponse,
   CreateTransactionBody,
   CreateTransactionResponse,
@@ -22,6 +28,22 @@ import {
   UpdateTransactionResponse,
   DeleteTransactionParams,
 } from "@workspace/api-zod";
+
+/**
+ * Compatibility classification for the existing manual income/expense
+ * workflows (docs/transaction-semantics.md, "Legacy Compatibility"): until a
+ * classification UI exists, a user-created income/expense receives an
+ * explicit confirmed classification so budgets, Budget Guardian, and
+ * gamification keep working exactly as before.
+ */
+function classificationForManualType(type: string) {
+  return {
+    classification: type === "income" ? "income" : "expense",
+    classificationStatus: "confirmed",
+    classificationConfidence: "high",
+    classificationSource: "user",
+  } as const;
+}
 
 const router: IRouter = Router();
 
@@ -73,6 +95,7 @@ router.post("/transactions", async (req, res): Promise<void> => {
         date: dateStr,
         amount: String(parsed.data.amount),
         fingerprint,
+        ...classificationForManualType(parsed.data.type),
       })
       .onConflictDoNothing()
       .returning();
@@ -87,34 +110,48 @@ router.post("/transactions", async (req, res): Promise<void> => {
 
     failpoint("transaction.afterInsert");
 
-    // Award XP keyed on the fingerprint (not the row id): xp_events has a
-    // unique (userId, eventType, sourceId) constraint, so re-logging an
-    // identical transaction — even concurrently — awards XP exactly once.
-    const award = await awardXpForEventInTx(
-      tx,
-      "transaction_created",
-      fingerprint,
-      10,
-    );
+    // Evidence gate (docs/transaction-semantics.md): only transactions the
+    // centralized evaluator deems unambiguous may support XP, achievements,
+    // missions, or bonus evidence. Manual income/expense creates are always
+    // confirmed (above), so behavior is unchanged for them — but if a row
+    // ever lands here unclassified or ambiguous, it earns nothing.
+    const effects = evaluateTransactionSemantics({
+      id: row.id,
+      amount: Number(row.amount),
+      classification: row.classification as TransactionClassification,
+      classificationStatus: row.classificationStatus as ClassificationStatus,
+    });
 
-    if (award.xpAwarded > 0) {
-      // Genuinely new transaction: grant first-transaction achievement if
-      // new; complete today's mission if it matches (incl. streak + weekly
-      // challenge); complete the day's bonus mission if log_transaction is
-      // today's assigned bonus. All in this same transaction.
-      await grantAchievementIfNewInTx(
+    if (effects.eligibleForGamification) {
+      // Award XP keyed on the fingerprint (not the row id): xp_events has a
+      // unique (userId, eventType, sourceId) constraint, so re-logging an
+      // identical transaction — even concurrently — awards XP exactly once.
+      const award = await awardXpForEventInTx(
         tx,
-        "first_transaction",
-        "First Transaction",
-        "Logged your very first transaction",
+        "transaction_created",
+        fingerprint,
+        10,
       );
-      await completeMissionIfPendingInTx(tx, "log_transaction");
-      failpoint("transaction.afterMission");
-      await completeBonusIfAssignedInTx(
-        tx,
-        "log_transaction",
-        transactionEvidenceRef(row.id),
-      );
+
+      if (award.xpAwarded > 0) {
+        // Genuinely new transaction: grant first-transaction achievement if
+        // new; complete today's mission if it matches (incl. streak + weekly
+        // challenge); complete the day's bonus mission if log_transaction is
+        // today's assigned bonus. All in this same transaction.
+        await grantAchievementIfNewInTx(
+          tx,
+          "first_transaction",
+          "First Transaction",
+          "Logged your very first transaction",
+        );
+        await completeMissionIfPendingInTx(tx, "log_transaction");
+        failpoint("transaction.afterMission");
+        await completeBonusIfAssignedInTx(
+          tx,
+          "log_transaction",
+          transactionEvidenceRef(row.id),
+        );
+      }
     }
 
     // A new transaction may complete the picture for last month's budgets;
@@ -202,6 +239,11 @@ router.patch("/transactions/:id", async (req, res): Promise<void> => {
       typeof parsed.data.date === "string"
         ? parsed.data.date
         : (parsed.data.date as Date).toISOString().slice(0, 10);
+  }
+  // Manual type edits re-classify through the same compatibility mapping as
+  // creates: the classification facts must never contradict the stored type.
+  if (parsed.data.type !== undefined) {
+    Object.assign(updateData, classificationForManualType(parsed.data.type));
   }
   // Keep the dedup fingerprint in sync with the fields it derives from.
   updateData.fingerprint = computeFingerprint({

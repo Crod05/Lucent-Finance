@@ -1,0 +1,368 @@
+Please implement the Lucent Transaction Semantics foundation.
+
+This session is limited to the schema foundation, centralized policy
+evaluator, compatibility migration, Budget Guardian integration, and tests.
+
+Do not modify the UI, chapters, quests, scorecards, boss battles,
+authentication, or unrelated gamification behavior.
+
+Source of truth:
+
+docs/transaction-semantics.md
+
+Before modifying code, inspect the existing transaction schema,
+transaction creation/update routes, Budget Guardian implementation,
+evidence helpers, migrations, and tests.
+
+Preserve all previously verified behavior, including:
+
+- atomic transaction boundaries
+- evidence integrity
+- rollback behavior
+- idempotency
+- duplicate protection
+- generic error handling
+- existing gamification functionality
+
+--------------------------------------------------
+PHASE 1 — Classification schema
+--------------------------------------------------
+
+Extend the transaction model to support semantic classification.
+
+Add a transaction classification field supporting:
+
+- expense
+- income
+- transfer
+- refund
+- reimbursement
+- investment_contribution
+- investment_withdrawal
+- debt_payment
+- debt_proceeds
+- fee_interest
+- adjustment
+- unclassified
+
+Add:
+
+classification_status
+
+Allowed values:
+
+- confirmed
+- suggested
+- unclassified
+
+Add:
+
+classification_confidence
+
+Allowed values:
+
+- high
+- medium
+- low
+- none
+
+Add:
+
+classification_source
+
+Allowed values:
+
+- user
+- legacy_type
+- rule
+- institution
+- linked_transaction
+- unknown
+
+IMPORTANT
+
+Do NOT add stored database columns for:
+
+- counts_toward_budget
+- counts_as_income
+- counts_as_spending
+- eligible_for_gamification
+
+These values must be derived exclusively by the centralized
+transaction semantics evaluator.
+
+--------------------------------------------------
+PHASE 2 — Transaction relationships
+--------------------------------------------------
+
+Implement the normalized relationship model described in:
+
+docs/transaction-semantics.md
+
+Create the minimum normalized structure equivalent to:
+
+transaction_allocations
+
+including:
+
+- id
+- source_transaction_id
+- target_transaction_id
+- relationship_type
+- allocated_amount
+- created_at
+
+Supported relationship types:
+
+- refund_of
+- reimbursement_of
+- transfer_pair
+- reversal_of
+- correction_of
+
+Implement constraints preventing:
+
+- self allocation
+- zero allocation
+- negative allocation
+- silent over-allocation beyond the original amount
+
+Support:
+
+- multiple reimbursements
+- partial reimbursements
+- multiple refunds
+- future transfer pairing
+
+Do NOT implement:
+
+- automatic matching
+- UI
+- suggestion workflows
+
+--------------------------------------------------
+PHASE 3 — Centralized semantics evaluator
+--------------------------------------------------
+
+Create:
+
+artifacts/api-server/src/lib/transaction-semantics.ts
+
+Implement one centralized evaluator:
+
+evaluateTransactionSemantics()
+
+This must become the single source of truth for:
+
+- budgets
+- dashboard totals
+- spending insights
+- Budget Guardian
+- quests
+- chapters
+- scorecards
+- future boss battles
+
+The evaluator must be:
+
+- pure
+- deterministic
+- free of database queries
+
+It receives semantic facts as input and returns evaluator outputs.
+
+Implement the financial rules defined in:
+
+docs/transaction-semantics.md
+
+including:
+
+- transfers never create spending or income
+- refunds reduce spending
+- reimbursements reduce allocated personal spending
+- debt proceeds are never income
+- investment contributions are not consumption spending
+- ambiguous transactions produce no evidence
+- unclassified transactions cannot support gamification
+
+Do not duplicate semantic logic elsewhere.
+
+--------------------------------------------------
+PHASE 4 — Compatibility migration
+--------------------------------------------------
+
+Create one non-empty migration.
+
+Backfill existing transactions.
+
+Map:
+
+existing type=income
+
+to
+
+classification=income
+
+Map:
+
+existing type=expense
+
+to
+
+classification=expense
+
+Set those migrated rows to:
+
+classification_status = confirmed
+
+classification_confidence = high
+
+classification_source = legacy_type
+
+Rows that cannot be safely mapped become:
+
+classification = unclassified
+
+Maintain compatibility with the current application.
+
+Do not break:
+
+- transaction creation
+- existing evidence references
+- Budget Guardian
+- atomic rollback tests
+- duplicate protection
+- historical gamification
+
+--------------------------------------------------
+PHASE 5 — Budget Guardian integration
+--------------------------------------------------
+
+Update:
+
+evaluateBudgetGuardianInTx
+
+Budget Guardian must obtain transaction meaning from:
+
+evaluateTransactionSemantics()
+
+It may only count evaluator-approved budget impact.
+
+Do NOT duplicate transaction classification logic inside
+Budget Guardian.
+
+Preserve:
+
+- transaction object usage
+- current transaction boundaries
+- rollback guarantees
+- evidence integrity
+- existing behavior
+
+Do not introduce nested transactions.
+
+--------------------------------------------------
+PHASE 6 — Regression testing
+--------------------------------------------------
+
+Add semantic tests covering:
+
+1.
+Every transaction classification.
+
+2.
+Transfers produce zero:
+
+- income
+- spending
+- budget impact
+
+3.
+Refunds reduce spending without becoming income.
+
+4.
+Partial reimbursements reduce only allocated spending.
+
+5.
+Multiple reimbursements against one expense.
+
+6.
+Over-allocation rejection.
+
+7.
+Unclassified transactions block:
+
+- XP
+- achievements
+- missions
+- Budget Guardian
+- chapter evidence
+
+8.
+Legacy migration produces:
+
+confirmed
+high
+legacy_type
+
+9.
+New manual income/expense transactions remain compatible.
+
+10.
+Budget Guardian consumes evaluator output.
+
+11.
+Evaluator performs no database queries.
+
+12.
+No stored policy booleans exist.
+
+13.
+Existing atomic rollback tests continue passing.
+
+14.
+Existing evidence integrity tests continue passing.
+
+15.
+Existing duplicate transaction tests continue passing.
+
+16.
+Existing Budget Guardian tests continue passing.
+
+Run:
+
+- full typecheck
+- full test suite
+
+--------------------------------------------------
+IMPLEMENTATION REQUIREMENTS
+--------------------------------------------------
+
+Do not:
+
+- build UI
+- implement automatic transaction matching
+- implement chapter features
+- implement authentication
+- modify unrelated routes
+
+If implementation requires deviations from
+docs/transaction-semantics.md,
+stop and explain before proceeding.
+
+--------------------------------------------------
+COMPLETION REPORT
+--------------------------------------------------
+
+When complete, provide:
+
+- commit hash
+- files changed
+- migration name
+- total test count
+- number of new semantic tests
+- confirmation that previous atomicity tests still pass
+- confirmation that evidence integrity tests still pass
+- confirmation that no stored policy booleans were introduced
+- confirmation that evaluateTransactionSemantics performs no database queries
+- any implementation limitations discovered

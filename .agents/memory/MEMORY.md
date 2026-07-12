@@ -1,3 +1,4 @@
 - [Gamification idempotency](gamification-idempotency.md) — every reward is one idempotent xp_events insert; GETs never write.
 - [Drizzle & testing](drizzle-and-testing.md) — relative drizzle config paths, hand-edited cleanup migrations verified on a pg_dump copy, vitest scratch-DB setup, ApiError shape, zod date coercion trap.
 - [Atomic action-write pattern](atomic-write-pattern.md) — one db.transaction per user action, InTx helpers only inside it; failpoint DI + snapshot-diff rollback tests.
+- [Transaction semantics evaluator pattern](transaction-semantics.md) — facts in DB, one pure evaluator for all meaning; scoped fact assembly must load every referenced allocation target or fail-closed logic overstates spending.

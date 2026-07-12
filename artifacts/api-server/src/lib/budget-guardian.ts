@@ -1,20 +1,39 @@
-import { and, eq } from "drizzle-orm";
-import { db, budgetsTable } from "@workspace/db";
+import { and, eq, gte, inArray, lte } from "drizzle-orm";
+import {
+  db,
+  budgetsTable,
+  transactionsTable,
+  transactionAllocationsTable,
+} from "@workspace/db";
 import { grantAchievementIfNewInTx, type DbTx } from "./xp";
+import {
+  evaluateTransactionSemantics,
+  type TransactionFacts,
+  type TransactionClassification,
+  type ClassificationStatus,
+  type AllocationRelationshipType,
+} from "./transaction-semantics";
 
 /**
  * Budget Guardian: a one-time achievement earned by completing a full
  * calendar month at or below EVERY active monthly budget for that month.
  *
+ * Transaction meaning comes EXCLUSIVELY from evaluateTransactionSemantics
+ * (docs/transaction-semantics.md) — no classification logic lives here. Only
+ * evaluator-approved budget impact is counted: confirmed expenses add to a
+ * category, allocated refunds/reimbursements subtract from the original
+ * expense's category, transfers and unclassified rows contribute nothing.
+ *
+ * CONSERVATIVE DUAL GUARD (prefer no reward over a false reward): the badge
+ * requires the month to be compliant under BOTH the evaluator-derived
+ * spending AND the legacy `budgets.currentSpent` aggregate. `currentSpent`
+ * is still what budget pages display; until it is fully replaced by derived
+ * totals, a month that either measure says is over budget earns nothing.
+ *
  * CAVEATS:
  * - Months are UTC calendar months (see the UTC note in ./xp.ts) — a month is
  *   "completed" once the UTC clock has passed its final midnight, not the
  *   player's local midnight.
- * - Compliance is computed from budgets' `currentSpent`, which sums expense
- *   transactions. Refund/transfer semantics are not formally defined yet: a
- *   refund logged as income does not reduce `currentSpent`, and internal
- *   transfers logged as expenses inflate it. Until transaction semantics are
- *   formalized, this calculation may under- or over-count real spending.
  */
 
 export interface BudgetCompliance {
@@ -53,6 +72,170 @@ export function isMonthCompleted(
   return now.getTime() >= endExclusive;
 }
 
+/** Inclusive first / last day (YYYY-MM-DD) of a UTC calendar month. */
+function monthRange(year: number, month: number): { first: string; last: string } {
+  const first = new Date(Date.UTC(year, month - 1, 1)).toISOString().slice(0, 10);
+  const last = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10);
+  return { first, last };
+}
+
+interface TxRow {
+  id: number;
+  date: string;
+  category: string;
+  amount: string;
+  classification: string;
+  classificationStatus: string;
+}
+
+/**
+ * Evaluator-derived spending per category for one month.
+ *
+ * Fact assembly (queries live here; the evaluator itself is pure):
+ * 1. Load the month's transactions.
+ * 2. Load allocations targeting them (refunds/reimbursements may be logged in
+ *    a LATER month but still offset this month's expense) plus the source
+ *    transactions of those allocations.
+ * 3. Evaluate each distinct transaction once with its full allocation facts.
+ * 4. Apply each evaluator budget impact to the category of the transaction it
+ *    applies to (self for expenses, the target for offsets) — only when that
+ *    transaction belongs to the month being evaluated.
+ */
+export async function derivedSpentByCategoryInTx(
+  tx: DbTx,
+  year: number,
+  month: number,
+): Promise<Map<string, number>> {
+  const { first, last } = monthRange(year, month);
+
+  const monthTxs: TxRow[] = await tx
+    .select({
+      id: transactionsTable.id,
+      date: transactionsTable.date,
+      category: transactionsTable.category,
+      amount: transactionsTable.amount,
+      classification: transactionsTable.classification,
+      classificationStatus: transactionsTable.classificationStatus,
+    })
+    .from(transactionsTable)
+    .where(and(gte(transactionsTable.date, first), lte(transactionsTable.date, last)));
+
+  if (monthTxs.length === 0) return new Map();
+
+  const monthIds = monthTxs.map((t) => t.id);
+  const byId = new Map<number, TxRow>(monthTxs.map((t) => [t.id, t]));
+
+  // Allocations that touch the month's transactions from either side.
+  const touching = await tx
+    .select()
+    .from(transactionAllocationsTable)
+    .where(inArray(transactionAllocationsTable.targetTransactionId, monthIds));
+
+  // Pull in out-of-month source transactions of those allocations.
+  const extraIds = [
+    ...new Set(
+      touching.map((a) => a.sourceTransactionId).filter((id) => !byId.has(id)),
+    ),
+  ];
+  if (extraIds.length > 0) {
+    const extra: TxRow[] = await tx
+      .select({
+        id: transactionsTable.id,
+        date: transactionsTable.date,
+        category: transactionsTable.category,
+        amount: transactionsTable.amount,
+        classification: transactionsTable.classification,
+        classificationStatus: transactionsTable.classificationStatus,
+      })
+      .from(transactionsTable)
+      .where(inArray(transactionsTable.id, extraIds));
+    for (const t of extra) byId.set(t.id, t);
+  }
+
+  const allIds = [...byId.keys()];
+  const allAllocations = await tx
+    .select()
+    .from(transactionAllocationsTable)
+    .where(inArray(transactionAllocationsTable.sourceTransactionId, allIds));
+
+  // A source may split its allocations across targets inside AND outside the
+  // month (e.g. one reimbursement covering two months' dinners). Every
+  // referenced target's facts must be loaded, or the evaluator would see a
+  // phantom "unclassified" target and suppress the legitimate in-month
+  // offset (ALLOCATION_TARGET_UNRESOLVED → zero effects → overstated spend).
+  const missingTargetIds = [
+    ...new Set(
+      allAllocations
+        .map((a) => a.targetTransactionId)
+        .filter((id) => !byId.has(id)),
+    ),
+  ];
+  if (missingTargetIds.length > 0) {
+    const extraTargets: TxRow[] = await tx
+      .select({
+        id: transactionsTable.id,
+        date: transactionsTable.date,
+        category: transactionsTable.category,
+        amount: transactionsTable.amount,
+        classification: transactionsTable.classification,
+        classificationStatus: transactionsTable.classificationStatus,
+      })
+      .from(transactionsTable)
+      .where(inArray(transactionsTable.id, missingTargetIds));
+    for (const t of extraTargets) byId.set(t.id, t);
+  }
+
+  const factsFor = (row: TxRow): TransactionFacts => ({
+    id: row.id,
+    amount: Number(row.amount),
+    classification: row.classification as TransactionClassification,
+    classificationStatus: row.classificationStatus as ClassificationStatus,
+    outgoingAllocations: allAllocations
+      .filter((a) => a.sourceTransactionId === row.id)
+      .map((a) => {
+        const target = byId.get(a.targetTransactionId);
+        return {
+          relationshipType: a.relationshipType as AllocationRelationshipType,
+          allocatedAmount: Number(a.allocatedAmount),
+          targetTransactionId: a.targetTransactionId,
+          targetClassification: (target?.classification ??
+            "unclassified") as TransactionClassification,
+          targetClassificationStatus: (target?.classificationStatus ??
+            "unclassified") as ClassificationStatus,
+        };
+      }),
+    incomingAllocations: touching
+      .filter((a) => a.targetTransactionId === row.id)
+      .map((a) => ({
+        relationshipType: a.relationshipType as AllocationRelationshipType,
+        allocatedAmount: Number(a.allocatedAmount),
+        sourceTransactionId: a.sourceTransactionId,
+      })),
+  });
+
+  const monthIdSet = new Set(monthIds);
+  const spent = new Map<string, number>();
+  const add = (category: string, amount: number) => {
+    spent.set(
+      category,
+      Math.round(((spent.get(category) ?? 0) + amount) * 100) / 100,
+    );
+  };
+
+  for (const row of byId.values()) {
+    const effects = evaluateTransactionSemantics(factsFor(row));
+    for (const impact of effects.budgetImpacts) {
+      const appliedTo =
+        impact.appliesToTransactionId === null
+          ? row
+          : byId.get(impact.appliesToTransactionId);
+      if (!appliedTo || !monthIdSet.has(appliedTo.id)) continue;
+      add(appliedTo.category, impact.amount);
+    }
+  }
+  return spent;
+}
+
 /**
  * Evaluate Budget Guardian eligibility for a specific year/month and grant
  * the badge idempotently via the existing achievement system (unique on
@@ -72,13 +255,23 @@ export async function evaluateBudgetGuardianForMonthInTx(
 
   const budgets = await tx
     .select({
+      category: budgetsTable.category,
       monthlyLimit: budgetsTable.monthlyLimit,
       currentSpent: budgetsTable.currentSpent,
     })
     .from(budgetsTable)
     .where(and(eq(budgetsTable.year, year), eq(budgetsTable.month, month)));
 
+  // Legacy guard: the displayed aggregate must also be within limits.
   if (!isMonthCompliant(budgets)) return false;
+
+  // Evaluator-approved budget impact: derived spending per category must be
+  // within each budget's limit too.
+  const derived = await derivedSpentByCategoryInTx(tx, year, month);
+  const derivedCompliant = budgets.every(
+    (b) => (derived.get(b.category) ?? 0) <= Number(b.monthlyLimit),
+  );
+  if (!derivedCompliant) return false;
 
   return grantAchievementIfNewInTx(
     tx,
