@@ -1,7 +1,13 @@
 import { Router, type IRouter } from "express";
 import { gte, and, lte } from "drizzle-orm";
-import { db, transactionsTable, budgetsTable, billsTable, accountsTable } from "@workspace/db";
-import { completeMissionIfPending } from "../lib/xp";
+import {
+  db,
+  transactionsTable,
+  budgetsTable,
+  billsTable,
+  accountsTable,
+} from "@workspace/db";
+import { completeMissionIfPendingInTx } from "../lib/xp";
 import {
   GetInsightsSummaryResponse,
   GetSpendingByCategoryResponse,
@@ -14,8 +20,12 @@ const router: IRouter = Router();
 
 router.get("/insights/summary", async (req, res): Promise<void> => {
   const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const lastOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    .toISOString()
+    .slice(0, 10);
+  const lastOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    .toISOString()
+    .slice(0, 10);
 
   const transactions = await db.select().from(transactionsTable);
   const accounts = await db.select().from(accountsTable);
@@ -29,19 +39,27 @@ router.get("/insights/summary", async (req, res): Promise<void> => {
   const upcomingBills = await db
     .select()
     .from(billsTable)
-    .where(and(gte(billsTable.dueDate, today), lte(billsTable.dueDate, in30Days)));
+    .where(
+      and(gte(billsTable.dueDate, today), lte(billsTable.dueDate, in30Days)),
+    );
 
   const sevenDaysOut = new Date(now);
   sevenDaysOut.setDate(sevenDaysOut.getDate() + 7);
   const in7Days = sevenDaysOut.toISOString().slice(0, 10);
-  const billsDueThisWeek = upcomingBills.filter((b) => b.dueDate <= in7Days && b.status !== "paid").length;
+  const billsDueThisWeek = upcomingBills.filter(
+    (b) => b.dueDate <= in7Days && b.status !== "paid",
+  ).length;
 
   // This month transactions
   const monthlyTransactions = transactions.filter(
-    (t) => t.date >= firstOfMonth && t.date <= lastOfMonth
+    (t) => t.date >= firstOfMonth && t.date <= lastOfMonth,
   );
-  const totalIncome = monthlyTransactions.filter((t) => t.type === "income").reduce((sum, t) => sum + Number(t.amount), 0);
-  const totalExpenses = monthlyTransactions.filter((t) => t.type === "expense").reduce((sum, t) => sum + Number(t.amount), 0);
+  const totalIncome = monthlyTransactions
+    .filter((t) => t.type === "income")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
+  const totalExpenses = monthlyTransactions
+    .filter((t) => t.type === "expense")
+    .reduce((sum, t) => sum + Number(t.amount), 0);
 
   const totalBalance = accounts.reduce((sum, a) => {
     const bal = Number(a.balance);
@@ -49,10 +67,19 @@ router.get("/insights/summary", async (req, res): Promise<void> => {
   }, 0);
 
   // Budget usage this month
-  const monthBudgets = budgets.filter((b) => b.month === now.getMonth() + 1 && b.year === now.getFullYear());
-  const totalLimit = monthBudgets.reduce((sum, b) => sum + Number(b.monthlyLimit), 0);
-  const totalSpent = monthBudgets.reduce((sum, b) => sum + Number(b.currentSpent), 0);
-  const budgetUsagePercent = totalLimit > 0 ? Math.round((totalSpent / totalLimit) * 100) : 0;
+  const monthBudgets = budgets.filter(
+    (b) => b.month === now.getMonth() + 1 && b.year === now.getFullYear(),
+  );
+  const totalLimit = monthBudgets.reduce(
+    (sum, b) => sum + Number(b.monthlyLimit),
+    0,
+  );
+  const totalSpent = monthBudgets.reduce(
+    (sum, b) => sum + Number(b.currentSpent),
+    0,
+  );
+  const budgetUsagePercent =
+    totalLimit > 0 ? Math.round((totalSpent / totalLimit) * 100) : 0;
 
   const upcomingBillsTotal = upcomingBills
     .filter((b) => b.status !== "paid")
@@ -67,19 +94,28 @@ router.get("/insights/summary", async (req, res): Promise<void> => {
       budgetUsagePercent,
       upcomingBillsTotal,
       billsDueThisWeek,
-    })
+    }),
   );
 });
 
 router.get("/insights/spending", async (req, res): Promise<void> => {
   const now = new Date();
-  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1).toISOString().slice(0, 10);
-  const lastOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).toISOString().slice(0, 10);
+  const firstOfMonth = new Date(now.getFullYear(), now.getMonth(), 1)
+    .toISOString()
+    .slice(0, 10);
+  const lastOfMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0)
+    .toISOString()
+    .slice(0, 10);
 
   const transactions = await db
     .select()
     .from(transactionsTable)
-    .where(and(gte(transactionsTable.date, firstOfMonth), lte(transactionsTable.date, lastOfMonth)));
+    .where(
+      and(
+        gte(transactionsTable.date, firstOfMonth),
+        lte(transactionsTable.date, lastOfMonth),
+      ),
+    );
 
   const expenses = transactions.filter((t) => t.type === "expense");
   const totalExpenses = expenses.reduce((sum, t) => sum + Number(t.amount), 0);
@@ -92,7 +128,8 @@ router.get("/insights/spending", async (req, res): Promise<void> => {
   const result = Object.entries(byCategory).map(([category, amount]) => ({
     category,
     amount,
-    percentage: totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
+    percentage:
+      totalExpenses > 0 ? Math.round((amount / totalExpenses) * 100) : 0,
   }));
 
   res.json(GetSpendingByCategoryResponse.parse(result));
@@ -102,7 +139,10 @@ router.get("/insights/trends", async (req, res): Promise<void> => {
   const transactions = await db.select().from(transactionsTable);
 
   // Group by month/year
-  const grouped: Record<string, { income: number; expenses: number; month: number; year: number }> = {};
+  const grouped: Record<
+    string,
+    { income: number; expenses: number; month: number; year: number }
+  > = {};
   for (const t of transactions) {
     const [yearStr, monthStr] = t.date.split("-");
     const year = parseInt(yearStr, 10);
@@ -114,7 +154,7 @@ router.get("/insights/trends", async (req, res): Promise<void> => {
   }
 
   const result = Object.values(grouped).sort((a, b) =>
-    a.year !== b.year ? a.year - b.year : a.month - b.month
+    a.year !== b.year ? a.year - b.year : a.month - b.month,
   );
 
   res.json(GetMonthlyTrendsResponse.parse(result));
@@ -126,7 +166,12 @@ router.get("/insights/trends", async (req, res): Promise<void> => {
 // idempotent inside completeMissionIfPending, so refreshes or repeated posts
 // can never double-award.
 router.post("/insights/viewed", async (req, res): Promise<void> => {
-  const result = await completeMissionIfPending("check_insights");
+  // ONE atomic action = ONE database transaction: the mission claim, XP,
+  // streak, weekly challenge, and the Insight Seeker achievement (granted
+  // inside completeMissionIfPendingInTx for check_insights) commit together.
+  const result = await db.transaction(async (tx) =>
+    completeMissionIfPendingInTx(tx, "check_insights"),
+  );
   res.json(MarkInsightsViewedResponse.parse(result));
 });
 
@@ -140,9 +185,19 @@ router.get("/insights/upcoming-bills", async (req, res): Promise<void> => {
   const rows = await db
     .select()
     .from(billsTable)
-    .where(and(gte(billsTable.dueDate, today), lte(billsTable.dueDate, future)));
+    .where(
+      and(gte(billsTable.dueDate, today), lte(billsTable.dueDate, future)),
+    );
 
-  res.json(GetUpcomingBillsResponse.parse(rows.map((r) => ({ ...r, amount: Number(r.amount), createdAt: r.createdAt.toISOString() }))));
+  res.json(
+    GetUpcomingBillsResponse.parse(
+      rows.map((r) => ({
+        ...r,
+        amount: Number(r.amount),
+        createdAt: r.createdAt.toISOString(),
+      })),
+    ),
+  );
 });
 
 export default router;

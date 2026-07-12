@@ -48,13 +48,15 @@ export const MISSION_POOL = [
   {
     missionType: "log_transaction",
     title: "Log a Transaction",
-    description: "Record one income or expense today to keep your finances current.",
+    description:
+      "Record one income or expense today to keep your finances current.",
     xpReward: 25,
   },
   {
     missionType: "review_budget",
     title: "Review Your Budget",
-    description: "Visit your budgets page and review how you're tracking this month.",
+    description:
+      "Visit your budgets page and review how you're tracking this month.",
     xpReward: 25,
   },
   {
@@ -131,7 +133,7 @@ export interface ClassEvolution {
  */
 export function computeClassEvolution(
   totalXp: number,
-  startingClass: string | null | undefined
+  startingClass: string | null | undefined,
 ): ClassEvolution {
   let xpIndex = 0;
   for (let i = 0; i < CLASS_LADDER.length; i++) {
@@ -143,14 +145,25 @@ export function computeClassEvolution(
   const next = CLASS_LADDER[currentIndex + 1] ?? null;
 
   if (!next) {
-    return { currentClass: current.key, nextClass: null, classProgress: 100, xpToNextClass: 0 };
+    return {
+      currentClass: current.key,
+      nextClass: null,
+      classProgress: 100,
+      xpToNextClass: 0,
+    };
   }
 
   const span = next.threshold - current.threshold;
   const gained = Math.max(0, totalXp - current.threshold);
-  const classProgress = span > 0 ? Math.min(100, Math.round((gained / span) * 100)) : 0;
+  const classProgress =
+    span > 0 ? Math.min(100, Math.round((gained / span) * 100)) : 0;
   const xpToNextClass = Math.max(0, next.threshold - totalXp);
-  return { currentClass: current.key, nextClass: next.key, classProgress, xpToNextClass };
+  return {
+    currentClass: current.key,
+    nextClass: next.key,
+    classProgress,
+    xpToNextClass,
+  };
 }
 
 export function computeLevel(totalXp: number): number {
@@ -173,7 +186,9 @@ export function computeLevelProgress(totalXp: number): number {
   const currentThreshold = LEVEL_THRESHOLDS[level - 1] ?? 0;
   const nextThreshold = LEVEL_THRESHOLDS[level];
   if (!nextThreshold) return 100;
-  return Math.round(((totalXp - currentThreshold) / (nextThreshold - currentThreshold)) * 100);
+  return Math.round(
+    ((totalXp - currentThreshold) / (nextThreshold - currentThreshold)) * 100,
+  );
 }
 
 /**
@@ -182,7 +197,9 @@ export function computeLevelProgress(totalXp: number): number {
  * this so reads stay side-effect free. The row is only materialized by write
  * paths (XP awards, onboarding) via getOrCreateProgress / awardXpForEventInTx.
  */
-export async function readProgress(): Promise<typeof userProgressTable.$inferSelect> {
+export async function readProgress(): Promise<
+  typeof userProgressTable.$inferSelect
+> {
   const [existing] = await db
     .select()
     .from(userProgressTable)
@@ -217,7 +234,10 @@ export async function getOrCreateProgress() {
 
   if (existing) return existing;
 
-  await db.insert(userProgressTable).values({ userId: DEFAULT_USER }).onConflictDoNothing();
+  await db
+    .insert(userProgressTable)
+    .values({ userId: DEFAULT_USER })
+    .onConflictDoNothing();
   const [row] = await db
     .select()
     .from(userProgressTable)
@@ -232,15 +252,24 @@ export interface XpAwardResult {
   leveledUp: boolean;
 }
 
-type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
+/**
+ * The Drizzle transaction context threaded through every *InTx helper.
+ * Atomic action routes open exactly ONE db.transaction and pass its `tx`
+ * through the whole call chain — helpers never open their own transaction
+ * and never touch the global `db` object once the route transaction begins.
+ */
+export type DbTx = Parameters<Parameters<typeof db.transaction>[0]>[0];
 
-async function awardXpForEventInTx(
+export async function awardXpForEventInTx(
   tx: DbTx,
   eventType: string,
   sourceId: string,
-  amount: number
+  amount: number,
 ): Promise<XpAwardResult> {
-  await tx.insert(userProgressTable).values({ userId: DEFAULT_USER }).onConflictDoNothing();
+  await tx
+    .insert(userProgressTable)
+    .values({ userId: DEFAULT_USER })
+    .onConflictDoNothing();
 
   const [progress] = await tx
     .select()
@@ -273,7 +302,12 @@ async function awardXpForEventInTx(
     .set({ totalXp: newTotalXp, level: newLevel })
     .where(eq(userProgressTable.userId, DEFAULT_USER));
 
-  return { xpAwarded: amount, newTotalXp, newLevel, leveledUp: newLevel > oldLevel };
+  return {
+    xpAwarded: amount,
+    newTotalXp,
+    newLevel,
+    leveledUp: newLevel > oldLevel,
+  };
 }
 
 /**
@@ -285,16 +319,18 @@ async function awardXpForEventInTx(
 export async function awardXpForEvent(
   eventType: string,
   sourceId: string,
-  amount: number
+  amount: number,
 ): Promise<XpAwardResult> {
-  return await db.transaction(async (tx) => awardXpForEventInTx(tx, eventType, sourceId, amount));
+  return await db.transaction(async (tx) =>
+    awardXpForEventInTx(tx, eventType, sourceId, amount),
+  );
 }
 
-async function grantAchievementIfNewInTx(
+export async function grantAchievementIfNewInTx(
   tx: DbTx,
   badgeKey: string,
   name: string,
-  description: string
+  description: string,
 ): Promise<boolean> {
   const inserted = await tx
     .insert(earnedAchievementsTable)
@@ -304,17 +340,15 @@ async function grantAchievementIfNewInTx(
   return inserted.length > 0;
 }
 
+/** Standalone wrapper: opens a transaction and delegates to the InTx form. */
 export async function grantAchievementIfNew(
   badgeKey: string,
   name: string,
-  description: string
+  description: string,
 ): Promise<boolean> {
-  const inserted = await db
-    .insert(earnedAchievementsTable)
-    .values({ userId: DEFAULT_USER, badgeKey, name, description })
-    .onConflictDoNothing()
-    .returning();
-  return inserted.length > 0;
+  return await db.transaction(async (tx) =>
+    grantAchievementIfNewInTx(tx, badgeKey, name, description),
+  );
 }
 
 export interface MissionCompletionResult {
@@ -339,118 +373,143 @@ export interface MissionCompletionResult {
  * challenge target, the +50 XP weekly bonus is awarded exactly once in the
  * same transaction, keyed on (weekly_challenge, weekStartDate) in xp_events.
  *
- * The claim, XP awards, streak update, and achievement grants all run in one
- * DB transaction, so a failure at any step rolls back the claim and the
+ * The claim, XP awards, streak update, and achievement grants all run in the
+ * caller's transaction, so a failure at any step rolls back the claim and the
  * mission stays pending — no XP or streak progress can be lost.
  */
-export async function completeMissionIfPending(missionType: string): Promise<MissionCompletionResult> {
+export async function completeMissionIfPendingInTx(
+  tx: DbTx,
+  missionType: string,
+): Promise<MissionCompletionResult> {
   const today = todayStr();
   const template = missionForDate(today);
 
-  return await db.transaction(async (tx) => {
-    // Materialize today's deterministic mission row if it doesn't exist yet.
+  // Materialize today's deterministic mission row if it doesn't exist yet.
+  await tx
+    .insert(dailyMissionsTable)
+    .values({
+      userId: DEFAULT_USER,
+      date: today,
+      missionType: template.missionType,
+      title: template.title,
+      description: template.description,
+      xpReward: template.xpReward,
+      status: "pending",
+    })
+    .onConflictDoNothing();
+
+  const claimed = await tx
+    .update(dailyMissionsTable)
+    .set({ status: "completed", completedAt: new Date() })
+    .where(
+      and(
+        eq(dailyMissionsTable.userId, DEFAULT_USER),
+        eq(dailyMissionsTable.date, today),
+        eq(dailyMissionsTable.missionType, missionType),
+        eq(dailyMissionsTable.status, "pending"),
+      ),
+    )
+    .returning();
+
+  if (claimed.length === 0) return { missionCompleted: false, xpAwarded: 0 };
+  const mission = claimed[0];
+
+  // Locks the user_progress row for the rest of this transaction.
+  const missionAward = await awardXpForEventInTx(
+    tx,
+    "mission_completed",
+    String(mission.id),
+    mission.xpReward,
+  );
+
+  // Update streak (once per day; the atomic claim above guarantees this
+  // branch runs at most once per mission/day).
+  const [progress] = await tx
+    .select()
+    .from(userProgressTable)
+    .where(eq(userProgressTable.userId, DEFAULT_USER));
+
+  if (progress.lastMissionDate !== today) {
+    const yesterday = new Date();
+    yesterday.setDate(yesterday.getDate() - 1);
+    const yesterdayStr = yesterday.toISOString().slice(0, 10);
+
+    const newStreak =
+      progress.lastMissionDate === yesterdayStr
+        ? progress.currentStreak + 1
+        : 1;
+    const newLongest = Math.max(newStreak, progress.longestStreak);
+
     await tx
-      .insert(dailyMissionsTable)
-      .values({
-        userId: DEFAULT_USER,
-        date: today,
-        missionType: template.missionType,
-        title: template.title,
-        description: template.description,
-        xpReward: template.xpReward,
-        status: "pending",
+      .update(userProgressTable)
+      .set({
+        currentStreak: newStreak,
+        longestStreak: newLongest,
+        lastMissionDate: today,
       })
-      .onConflictDoNothing();
-
-    const claimed = await tx
-      .update(dailyMissionsTable)
-      .set({ status: "completed", completedAt: new Date() })
-      .where(
-        and(
-          eq(dailyMissionsTable.userId, DEFAULT_USER),
-          eq(dailyMissionsTable.date, today),
-          eq(dailyMissionsTable.missionType, missionType),
-          eq(dailyMissionsTable.status, "pending")
-        )
-      )
-      .returning();
-
-    if (claimed.length === 0) return { missionCompleted: false, xpAwarded: 0 };
-    const mission = claimed[0];
-
-    // Locks the user_progress row for the rest of this transaction.
-    const missionAward = await awardXpForEventInTx(
-      tx,
-      "mission_completed",
-      String(mission.id),
-      mission.xpReward
-    );
-
-    // Update streak (once per day; the atomic claim above guarantees this
-    // branch runs at most once per mission/day).
-    const [progress] = await tx
-      .select()
-      .from(userProgressTable)
       .where(eq(userProgressTable.userId, DEFAULT_USER));
 
-    if (progress.lastMissionDate !== today) {
-      const yesterday = new Date();
-      yesterday.setDate(yesterday.getDate() - 1);
-      const yesterdayStr = yesterday.toISOString().slice(0, 10);
-
-      const newStreak = progress.lastMissionDate === yesterdayStr ? progress.currentStreak + 1 : 1;
-      const newLongest = Math.max(newStreak, progress.longestStreak);
-
-      await tx
-        .update(userProgressTable)
-        .set({ currentStreak: newStreak, longestStreak: newLongest, lastMissionDate: today })
-        .where(eq(userProgressTable.userId, DEFAULT_USER));
-
-      if (newStreak >= 3) {
-        await grantAchievementIfNewInTx(
-          tx,
-          "streak_3",
-          "3-Day Streak",
-          "Completed daily missions 3 days in a row"
-        );
-      }
-    }
-
-    if (mission.missionType === "check_insights") {
+    if (newStreak >= 3) {
       await grantAchievementIfNewInTx(
         tx,
-        "insight_seeker",
-        "Insight Seeker",
-        "Completed the Explore Insights daily mission"
+        "streak_3",
+        "3-Day Streak",
+        "Completed daily missions 3 days in a row",
       );
     }
+  }
 
-    // Weekly challenge: if this completion brings the calendar week (Mon–Sun)
-    // to the target, award the weekly bonus exactly once. Idempotency comes
-    // from the xp_events unique key (userId, "weekly_challenge", weekStart) —
-    // repeated completions or refreshes can never award it twice.
-    const weekStart = weekStartStr(today);
-    const weekEnd = weekEndStr(today);
-    const completedThisWeek = await tx
-      .select({ id: dailyMissionsTable.id })
-      .from(dailyMissionsTable)
-      .where(
-        and(
-          eq(dailyMissionsTable.userId, DEFAULT_USER),
-          gte(dailyMissionsTable.date, weekStart),
-          lte(dailyMissionsTable.date, weekEnd),
-          eq(dailyMissionsTable.status, "completed")
-        )
-      );
+  if (mission.missionType === "check_insights") {
+    await grantAchievementIfNewInTx(
+      tx,
+      "insight_seeker",
+      "Insight Seeker",
+      "Completed the Explore Insights daily mission",
+    );
+  }
 
-    let weeklyXp = 0;
-    if (completedThisWeek.length >= WEEKLY_TARGET) {
-      const weeklyAward = await awardXpForEventInTx(tx, "weekly_challenge", weekStart, WEEKLY_XP);
-      weeklyXp = weeklyAward.xpAwarded;
-    }
+  // Weekly challenge: if this completion brings the calendar week (Mon–Sun)
+  // to the target, award the weekly bonus exactly once. Idempotency comes
+  // from the xp_events unique key (userId, "weekly_challenge", weekStart) —
+  // repeated completions or refreshes can never award it twice.
+  const weekStart = weekStartStr(today);
+  const weekEnd = weekEndStr(today);
+  const completedThisWeek = await tx
+    .select({ id: dailyMissionsTable.id })
+    .from(dailyMissionsTable)
+    .where(
+      and(
+        eq(dailyMissionsTable.userId, DEFAULT_USER),
+        gte(dailyMissionsTable.date, weekStart),
+        lte(dailyMissionsTable.date, weekEnd),
+        eq(dailyMissionsTable.status, "completed"),
+      ),
+    );
 
-    return { missionCompleted: true, xpAwarded: missionAward.xpAwarded + weeklyXp };
-  });
+  let weeklyXp = 0;
+  if (completedThisWeek.length >= WEEKLY_TARGET) {
+    const weeklyAward = await awardXpForEventInTx(
+      tx,
+      "weekly_challenge",
+      weekStart,
+      WEEKLY_XP,
+    );
+    weeklyXp = weeklyAward.xpAwarded;
+  }
+
+  return {
+    missionCompleted: true,
+    xpAwarded: missionAward.xpAwarded + weeklyXp,
+  };
+}
+
+/** Standalone wrapper: opens a transaction and delegates to the InTx form. */
+export async function completeMissionIfPending(
+  missionType: string,
+): Promise<MissionCompletionResult> {
+  return await db.transaction(async (tx) =>
+    completeMissionIfPendingInTx(tx, missionType),
+  );
 }
 
 /**
@@ -462,32 +521,46 @@ export async function completeMissionIfPending(missionType: string): Promise<Mis
  * (userId, "bonus_mission", `{date}:{type}`) so it can never double-award —
  * repeating the same action or refreshing changes nothing.
  */
-export async function completeBonusIfAssigned(
+export async function completeBonusIfAssignedInTx(
+  tx: DbTx,
   actionType: string,
-  evidenceRef: string
+  evidenceRef: string,
 ): Promise<XpAwardResult | null> {
   const today = todayStr();
   if (bonusMissionTypeForDate(today) !== actionType) return null;
 
-  return await db.transaction(async (tx) => {
-    const inserted = await tx
-      .insert(bonusMissionsTable)
-      .values({
-        userId: DEFAULT_USER,
-        date: today,
-        slot: "bonus",
-        missionType: actionType,
-        xpReward: BONUS_XP,
-        status: "completed",
-        completedAt: new Date(),
-        evidenceRef,
-      })
-      .onConflictDoNothing()
-      .returning();
+  const inserted = await tx
+    .insert(bonusMissionsTable)
+    .values({
+      userId: DEFAULT_USER,
+      date: today,
+      slot: "bonus",
+      missionType: actionType,
+      xpReward: BONUS_XP,
+      status: "completed",
+      completedAt: new Date(),
+      evidenceRef,
+    })
+    .onConflictDoNothing()
+    .returning();
 
-    // Already completed today — never re-award.
-    if (inserted.length === 0) return null;
+  // Already completed today — never re-award.
+  if (inserted.length === 0) return null;
 
-    return await awardXpForEventInTx(tx, "bonus_mission", `${today}:${actionType}`, BONUS_XP);
-  });
+  return await awardXpForEventInTx(
+    tx,
+    "bonus_mission",
+    `${today}:${actionType}`,
+    BONUS_XP,
+  );
+}
+
+/** Standalone wrapper: opens a transaction and delegates to the InTx form. */
+export async function completeBonusIfAssigned(
+  actionType: string,
+  evidenceRef: string,
+): Promise<XpAwardResult | null> {
+  return await db.transaction(async (tx) =>
+    completeBonusIfAssignedInTx(tx, actionType, evidenceRef),
+  );
 }

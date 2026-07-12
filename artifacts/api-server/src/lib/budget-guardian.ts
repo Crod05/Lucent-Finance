@@ -1,6 +1,6 @@
 import { and, eq } from "drizzle-orm";
 import { db, budgetsTable } from "@workspace/db";
-import { grantAchievementIfNew } from "./xp";
+import { grantAchievementIfNewInTx, type DbTx } from "./xp";
 
 /**
  * Budget Guardian: a one-time achievement earned by completing a full
@@ -33,15 +33,23 @@ export function isMonthCompliant(budgets: BudgetCompliance[]): boolean {
 }
 
 /** The most recent fully completed UTC calendar month before `now`. */
-export function previousCompletedMonth(now: Date = new Date()): { year: number; month: number } {
+export function previousCompletedMonth(now: Date = new Date()): {
+  year: number;
+  month: number;
+} {
   const y = now.getUTCFullYear();
   const m = now.getUTCMonth() + 1; // 1-12
   return m === 1 ? { year: y - 1, month: 12 } : { year: y, month: m - 1 };
 }
 
 /** True when the given UTC calendar month has fully elapsed as of `now`. */
-export function isMonthCompleted(year: number, month: number, now: Date = new Date()): boolean {
-  const endExclusive = month === 12 ? Date.UTC(year + 1, 0, 1) : Date.UTC(year, month, 1);
+export function isMonthCompleted(
+  year: number,
+  month: number,
+  now: Date = new Date(),
+): boolean {
+  const endExclusive =
+    month === 12 ? Date.UTC(year + 1, 0, 1) : Date.UTC(year, month, 1);
   return now.getTime() >= endExclusive;
 }
 
@@ -54,29 +62,57 @@ export function isMonthCompleted(year: number, month: number, now: Date = new Da
  * Never grants for a month that has not fully completed — a freshly started
  * month with zero spending must not award the badge.
  */
-export async function evaluateBudgetGuardianForMonth(
+export async function evaluateBudgetGuardianForMonthInTx(
+  tx: DbTx,
   year: number,
   month: number,
-  now: Date = new Date()
+  now: Date = new Date(),
 ): Promise<boolean> {
   if (!isMonthCompleted(year, month, now)) return false;
 
-  const budgets = await db
-    .select({ monthlyLimit: budgetsTable.monthlyLimit, currentSpent: budgetsTable.currentSpent })
+  const budgets = await tx
+    .select({
+      monthlyLimit: budgetsTable.monthlyLimit,
+      currentSpent: budgetsTable.currentSpent,
+    })
     .from(budgetsTable)
     .where(and(eq(budgetsTable.year, year), eq(budgetsTable.month, month)));
 
   if (!isMonthCompliant(budgets)) return false;
 
-  return grantAchievementIfNew(
+  return grantAchievementIfNewInTx(
+    tx,
     "budget_guardian",
     "Budget Guardian",
-    "Completed a full month at or below every budget"
+    "Completed a full month at or below every budget",
   );
 }
 
-/** Evaluate the most recent completed month (the usual trigger path). */
-export async function evaluateBudgetGuardian(now: Date = new Date()): Promise<boolean> {
+/** Standalone wrapper: opens a transaction and delegates to the InTx form. */
+export async function evaluateBudgetGuardianForMonth(
+  year: number,
+  month: number,
+  now: Date = new Date(),
+): Promise<boolean> {
+  return await db.transaction(async (tx) =>
+    evaluateBudgetGuardianForMonthInTx(tx, year, month, now),
+  );
+}
+
+/** Evaluate the most recent completed month inside the caller's transaction. */
+export async function evaluateBudgetGuardianInTx(
+  tx: DbTx,
+  now: Date = new Date(),
+): Promise<boolean> {
   const { year, month } = previousCompletedMonth(now);
-  return evaluateBudgetGuardianForMonth(year, month, now);
+  return evaluateBudgetGuardianForMonthInTx(tx, year, month, now);
+}
+
+/** Standalone wrapper: opens a transaction and delegates to the InTx form. */
+export async function evaluateBudgetGuardian(
+  now: Date = new Date(),
+): Promise<boolean> {
+  return await db.transaction(async (tx) =>
+    evaluateBudgetGuardianInTx(tx, now),
+  );
 }

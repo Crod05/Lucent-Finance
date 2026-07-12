@@ -1,8 +1,8 @@
 import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, budgetsTable } from "@workspace/db";
-import { completeMissionIfPending } from "../lib/xp";
-import { evaluateBudgetGuardian } from "../lib/budget-guardian";
+import { completeMissionIfPendingInTx } from "../lib/xp";
+import { evaluateBudgetGuardianInTx } from "../lib/budget-guardian";
 import {
   ListBudgetsResponse,
   MarkBudgetsReviewedResponse,
@@ -26,7 +26,10 @@ function mapBudget(r: typeof budgetsTable.$inferSelect) {
 }
 
 router.get("/budgets", async (req, res): Promise<void> => {
-  const rows = await db.select().from(budgetsTable).orderBy(budgetsTable.createdAt);
+  const rows = await db
+    .select()
+    .from(budgetsTable)
+    .orderBy(budgetsTable.createdAt);
   res.json(ListBudgetsResponse.parse(rows.map(mapBudget)));
 });
 
@@ -36,10 +39,15 @@ router.get("/budgets", async (req, res): Promise<void> => {
 // idempotent inside completeMissionIfPending, so refreshes or repeated posts
 // can never double-award.
 router.post("/budgets/reviewed", async (req, res): Promise<void> => {
-  const result = await completeMissionIfPending("review_budget");
-  // Reviewing budgets is a natural checkpoint to evaluate the one-time
-  // Budget Guardian badge for the most recent completed month (idempotent).
-  await evaluateBudgetGuardian();
+  // ONE atomic action = ONE database transaction: mission completion (incl.
+  // XP, streak, weekly challenge) and the Budget Guardian evaluation for the
+  // most recent completed month commit together. Both are idempotent, so
+  // repeated posts can never double-award.
+  const result = await db.transaction(async (tx) => {
+    const completion = await completeMissionIfPendingInTx(tx, "review_budget");
+    await evaluateBudgetGuardianInTx(tx);
+    return completion;
+  });
   res.json(MarkBudgetsReviewedResponse.parse(result));
 });
 
@@ -68,7 +76,8 @@ router.patch("/budgets/:id", async (req, res): Promise<void> => {
     return;
   }
   const updateData: Record<string, unknown> = { ...parsed.data };
-  if (parsed.data.monthlyLimit !== undefined) updateData.monthlyLimit = String(parsed.data.monthlyLimit);
+  if (parsed.data.monthlyLimit !== undefined)
+    updateData.monthlyLimit = String(parsed.data.monthlyLimit);
   const [row] = await db
     .update(budgetsTable)
     .set(updateData)
@@ -87,7 +96,10 @@ router.delete("/budgets/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [row] = await db.delete(budgetsTable).where(eq(budgetsTable.id, params.data.id)).returning();
+  const [row] = await db
+    .delete(budgetsTable)
+    .where(eq(budgetsTable.id, params.data.id))
+    .returning();
   if (!row) {
     res.status(404).json({ error: "Budget not found" });
     return;

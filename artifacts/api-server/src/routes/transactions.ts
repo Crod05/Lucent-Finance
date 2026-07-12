@@ -2,14 +2,15 @@ import { Router, type IRouter } from "express";
 import { eq } from "drizzle-orm";
 import { db, transactionsTable, bonusMissionsTable } from "@workspace/db";
 import {
-  awardXpForEvent,
-  grantAchievementIfNew,
-  completeMissionIfPending,
-  completeBonusIfAssigned,
+  awardXpForEventInTx,
+  grantAchievementIfNewInTx,
+  completeMissionIfPendingInTx,
+  completeBonusIfAssignedInTx,
 } from "../lib/xp";
 import { computeFingerprint, isUniqueViolation } from "../lib/fingerprint";
 import { transactionEvidenceRef } from "../lib/evidence";
-import { evaluateBudgetGuardian } from "../lib/budget-guardian";
+import { evaluateBudgetGuardianInTx } from "../lib/budget-guardian";
+import { failpoint } from "../lib/failpoints";
 import {
   ListTransactionsResponse,
   CreateTransactionBody,
@@ -25,7 +26,10 @@ import {
 const router: IRouter = Router();
 
 router.get("/transactions", async (req, res): Promise<void> => {
-  const rows = await db.select().from(transactionsTable).orderBy(transactionsTable.createdAt);
+  const rows = await db
+    .select()
+    .from(transactionsTable)
+    .orderBy(transactionsTable.createdAt);
   const mapped = rows.map((r) => ({
     ...r,
     amount: Number(r.amount),
@@ -40,9 +44,10 @@ router.post("/transactions", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const dateStr = typeof parsed.data.date === "string"
-    ? parsed.data.date
-    : (parsed.data.date as Date).toISOString().slice(0, 10);
+  const dateStr =
+    typeof parsed.data.date === "string"
+      ? parsed.data.date
+      : (parsed.data.date as Date).toISOString().slice(0, 10);
   const fingerprint = computeFingerprint({
     date: dateStr,
     description: parsed.data.description,
@@ -51,55 +56,97 @@ router.post("/transactions", async (req, res): Promise<void> => {
     accountId: parsed.data.accountId,
   });
 
-  // ON CONFLICT DO NOTHING against the partial unique index on fingerprint:
-  // under concurrent identical requests exactly one insert wins; the rest
-  // return no row and are reported as explicit duplicates (409) — never a
-  // silent success.
-  const [row] = await db
-    .insert(transactionsTable)
-    .values({ ...parsed.data, date: dateStr, amount: String(parsed.data.amount), fingerprint })
-    .onConflictDoNothing()
-    .returning();
+  // ONE atomic action = ONE database transaction. The financial insert and
+  // every gamification write (action XP, achievement, daily mission, streak,
+  // weekly challenge, bonus mission, Budget Guardian) commit together or not
+  // at all: any failure below rolls back the inserted transaction row too,
+  // and the client gets a 500 — never a saved record with missing rewards.
+  const outcome = await db.transaction(async (tx) => {
+    // ON CONFLICT DO NOTHING against the partial unique index on fingerprint:
+    // under concurrent identical requests exactly one insert wins; the rest
+    // return no row and are reported as explicit duplicates (409) — never a
+    // silent success, and never any XP or mission progress.
+    const [row] = await tx
+      .insert(transactionsTable)
+      .values({
+        ...parsed.data,
+        date: dateStr,
+        amount: String(parsed.data.amount),
+        fingerprint,
+      })
+      .onConflictDoNothing()
+      .returning();
 
-  if (!row) {
-    const [existing] = await db
-      .select()
-      .from(transactionsTable)
-      .where(eq(transactionsTable.fingerprint, fingerprint));
+    if (!row) {
+      const [existing] = await tx
+        .select()
+        .from(transactionsTable)
+        .where(eq(transactionsTable.fingerprint, fingerprint));
+      return { kind: "duplicate" as const, existingId: existing?.id };
+    }
+
+    failpoint("transaction.afterInsert");
+
+    // Award XP keyed on the fingerprint (not the row id): xp_events has a
+    // unique (userId, eventType, sourceId) constraint, so re-logging an
+    // identical transaction — even concurrently — awards XP exactly once.
+    const award = await awardXpForEventInTx(
+      tx,
+      "transaction_created",
+      fingerprint,
+      10,
+    );
+
+    if (award.xpAwarded > 0) {
+      // Genuinely new transaction: grant first-transaction achievement if
+      // new; complete today's mission if it matches (incl. streak + weekly
+      // challenge); complete the day's bonus mission if log_transaction is
+      // today's assigned bonus. All in this same transaction.
+      await grantAchievementIfNewInTx(
+        tx,
+        "first_transaction",
+        "First Transaction",
+        "Logged your very first transaction",
+      );
+      await completeMissionIfPendingInTx(tx, "log_transaction");
+      failpoint("transaction.afterMission");
+      await completeBonusIfAssignedInTx(
+        tx,
+        "log_transaction",
+        transactionEvidenceRef(row.id),
+      );
+    }
+
+    // A new transaction may complete the picture for last month's budgets;
+    // evaluate the one-time Budget Guardian badge (idempotent, completed
+    // months only).
+    await evaluateBudgetGuardianInTx(tx);
+
+    return { kind: "created" as const, row };
+  });
+
+  if (outcome.kind === "duplicate") {
     res.status(409).json({
       error:
         "Duplicate transaction: an identical transaction (same date, description, amount, type, and account) already exists.",
       duplicate: true,
-      ...(existing ? { existingId: existing.id } : {}),
+      ...(outcome.existingId !== undefined
+        ? { existingId: outcome.existingId }
+        : {}),
     });
     return;
   }
 
-  // Award XP keyed on the fingerprint (not the row id): xp_events has a
-  // unique (userId, eventType, sourceId) constraint, so re-logging an
-  // identical transaction — even concurrently — awards XP exactly once.
-  const award = await awardXpForEvent("transaction_created", fingerprint, 10);
-
-  if (award.xpAwarded > 0) {
-    // Genuinely new transaction: grant first-transaction achievement if new;
-    // complete today's mission if it matches; complete the day's bonus
-    // mission if log_transaction is today's assigned bonus. Action XP,
-    // mission XP, and bonus XP are all separate idempotent xp_events.
-    await grantAchievementIfNew(
-      "first_transaction",
-      "First Transaction",
-      "Logged your very first transaction"
+  const row = outcome.row;
+  res
+    .status(201)
+    .json(
+      CreateTransactionResponse.parse({
+        ...row,
+        amount: Number(row.amount),
+        createdAt: row.createdAt.toISOString(),
+      }),
     );
-    await completeMissionIfPending("log_transaction");
-    await completeBonusIfAssigned("log_transaction", transactionEvidenceRef(row.id));
-  }
-
-  // A new transaction may complete the picture for last month's budgets;
-  // evaluate the one-time Budget Guardian badge (idempotent, completed
-  // months only).
-  await evaluateBudgetGuardian();
-
-  res.status(201).json(CreateTransactionResponse.parse({ ...row, amount: Number(row.amount), createdAt: row.createdAt.toISOString() }));
 });
 
 router.get("/transactions/:id", async (req, res): Promise<void> => {
@@ -108,12 +155,21 @@ router.get("/transactions/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [row] = await db.select().from(transactionsTable).where(eq(transactionsTable.id, params.data.id));
+  const [row] = await db
+    .select()
+    .from(transactionsTable)
+    .where(eq(transactionsTable.id, params.data.id));
   if (!row) {
     res.status(404).json({ error: "Transaction not found" });
     return;
   }
-  res.json(GetTransactionResponse.parse({ ...row, amount: Number(row.amount), createdAt: row.createdAt.toISOString() }));
+  res.json(
+    GetTransactionResponse.parse({
+      ...row,
+      amount: Number(row.amount),
+      createdAt: row.createdAt.toISOString(),
+    }),
+  );
 });
 
 router.patch("/transactions/:id", async (req, res): Promise<void> => {
@@ -136,7 +192,8 @@ router.patch("/transactions/:id", async (req, res): Promise<void> => {
     return;
   }
   const updateData: Record<string, unknown> = { ...parsed.data };
-  if (parsed.data.amount !== undefined) updateData.amount = String(parsed.data.amount);
+  if (parsed.data.amount !== undefined)
+    updateData.amount = String(parsed.data.amount);
   // Zod coerces `date` to a Date object; normalize to the canonical
   // YYYY-MM-DD string (same as the create path) so the stored value and the
   // fingerprint input are identical to what a create would produce.
@@ -152,7 +209,10 @@ router.patch("/transactions/:id", async (req, res): Promise<void> => {
     description: parsed.data.description ?? existing.description,
     amount: parsed.data.amount ?? existing.amount,
     type: parsed.data.type ?? existing.type,
-    accountId: parsed.data.accountId !== undefined ? parsed.data.accountId : existing.accountId,
+    accountId:
+      parsed.data.accountId !== undefined
+        ? parsed.data.accountId
+        : existing.accountId,
   });
   let row;
   try {
@@ -169,7 +229,9 @@ router.patch("/transactions/:id", async (req, res): Promise<void> => {
       const [existing] = await db
         .select()
         .from(transactionsTable)
-        .where(eq(transactionsTable.fingerprint, updateData.fingerprint as string));
+        .where(
+          eq(transactionsTable.fingerprint, updateData.fingerprint as string),
+        );
       res.status(409).json({
         error:
           "Duplicate transaction: this update would make the transaction identical to an existing one.",
@@ -184,7 +246,13 @@ router.patch("/transactions/:id", async (req, res): Promise<void> => {
     res.status(404).json({ error: "Transaction not found" });
     return;
   }
-  res.json(UpdateTransactionResponse.parse({ ...row, amount: Number(row.amount), createdAt: row.createdAt.toISOString() }));
+  res.json(
+    UpdateTransactionResponse.parse({
+      ...row,
+      amount: Number(row.amount),
+      createdAt: row.createdAt.toISOString(),
+    }),
+  );
 });
 
 router.delete("/transactions/:id", async (req, res): Promise<void> => {
@@ -206,7 +274,9 @@ router.delete("/transactions/:id", async (req, res): Promise<void> => {
     await tx
       .update(bonusMissionsTable)
       .set({ evidenceRef: null })
-      .where(eq(bonusMissionsTable.evidenceRef, transactionEvidenceRef(deleted.id)));
+      .where(
+        eq(bonusMissionsTable.evidenceRef, transactionEvidenceRef(deleted.id)),
+      );
     return deleted;
   });
   if (!row) {

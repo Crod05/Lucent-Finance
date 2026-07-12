@@ -2,11 +2,12 @@ import { Router, type IRouter } from "express";
 import { and, eq, ne } from "drizzle-orm";
 import { db, billsTable } from "@workspace/db";
 import {
-  awardXpForEvent,
-  grantAchievementIfNew,
-  completeMissionIfPending,
-  completeBonusIfAssigned,
+  awardXpForEventInTx,
+  grantAchievementIfNewInTx,
+  completeMissionIfPendingInTx,
+  completeBonusIfAssignedInTx,
 } from "../lib/xp";
+import { failpoint } from "../lib/failpoints";
 import {
   ListBillsResponse,
   CreateBillBody,
@@ -40,12 +41,17 @@ router.post("/bills", async (req, res): Promise<void> => {
     res.status(400).json({ error: parsed.error.message });
     return;
   }
-  const dueDateStr = typeof parsed.data.dueDate === "string"
-    ? parsed.data.dueDate
-    : (parsed.data.dueDate as Date).toISOString().slice(0, 10);
+  const dueDateStr =
+    typeof parsed.data.dueDate === "string"
+      ? parsed.data.dueDate
+      : (parsed.data.dueDate as Date).toISOString().slice(0, 10);
   const [row] = await db
     .insert(billsTable)
-    .values({ ...parsed.data, dueDate: dueDateStr, amount: String(parsed.data.amount) })
+    .values({
+      ...parsed.data,
+      dueDate: dueDateStr,
+      amount: String(parsed.data.amount),
+    })
     .returning();
   res.status(201).json(CreateBillResponse.parse(mapBill(row)));
 });
@@ -62,7 +68,8 @@ router.patch("/bills/:id", async (req, res): Promise<void> => {
     return;
   }
   const updateData: Record<string, unknown> = { ...parsed.data };
-  if (parsed.data.amount !== undefined) updateData.amount = String(parsed.data.amount);
+  if (parsed.data.amount !== undefined)
+    updateData.amount = String(parsed.data.amount);
   const [row] = await db
     .update(billsTable)
     .set(updateData)
@@ -81,7 +88,10 @@ router.delete("/bills/:id", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  const [row] = await db.delete(billsTable).where(eq(billsTable.id, params.data.id)).returning();
+  const [row] = await db
+    .delete(billsTable)
+    .where(eq(billsTable.id, params.data.id))
+    .returning();
   if (!row) {
     res.status(404).json({ error: "Bill not found" });
     return;
@@ -95,35 +105,56 @@ router.patch("/bills/:id/pay", async (req, res): Promise<void> => {
     res.status(400).json({ error: params.error.message });
     return;
   }
-  // Atomic transition: only unpaid bills flip to paid. If no row matches,
-  // the bill is either missing or already paid — no XP either way.
-  const [row] = await db
-    .update(billsTable)
-    .set({ status: "paid" })
-    .where(and(eq(billsTable.id, params.data.id), ne(billsTable.status, "paid")))
-    .returning();
+  // ONE atomic action = ONE database transaction. The paid-status flip and
+  // every gamification write commit together or not at all: if any award
+  // step fails, the transaction rolls back and the bill remains unpaid.
+  const outcome = await db.transaction(async (tx) => {
+    // Atomic conditional transition: only unpaid bills flip to paid. Under
+    // concurrent pay requests exactly one UPDATE matches; the losers see no
+    // row and take the already-paid path with no XP, streak, or bonus.
+    const [row] = await tx
+      .update(billsTable)
+      .set({ status: "paid" })
+      .where(
+        and(eq(billsTable.id, params.data.id), ne(billsTable.status, "paid")),
+      )
+      .returning();
 
-  if (!row) {
-    const [existing] = await db.select().from(billsTable).where(eq(billsTable.id, params.data.id));
-    if (!existing) {
-      res.status(404).json({ error: "Bill not found" });
-      return;
+    if (!row) {
+      const [existing] = await tx
+        .select()
+        .from(billsTable)
+        .where(eq(billsTable.id, params.data.id));
+      if (!existing) return { kind: "notFound" as const };
+      // Already paid: return the bill as-is without awarding anything.
+      return { kind: "alreadyPaid" as const, bill: existing };
     }
-    // Already paid: return the bill as-is without awarding anything.
-    res.json(MarkBillPaidResponse.parse(mapBill(existing)));
+
+    failpoint("bill.afterPaid");
+
+    // Bill XP (idempotent per bill id); Bill Slayer if new; today's mission
+    // if it matches (incl. streak + weekly challenge); the day's bonus
+    // mission if pay_bill is today's assigned bonus. All idempotent, all in
+    // this same transaction.
+    await awardXpForEventInTx(tx, "bill_paid", String(row.id), 15);
+    await grantAchievementIfNewInTx(
+      tx,
+      "bill_slayer",
+      "Bill Slayer",
+      "Marked your first bill as paid",
+    );
+    await completeMissionIfPendingInTx(tx, "pay_bill");
+    failpoint("bill.afterMission");
+    await completeBonusIfAssignedInTx(tx, "pay_bill", `bill:${row.id}`);
+
+    return { kind: "paid" as const, bill: row };
+  });
+
+  if (outcome.kind === "notFound") {
+    res.status(404).json({ error: "Bill not found" });
     return;
   }
-
-  // Award XP for paying a bill (idempotent per bill — repeat pay calls don't double-award);
-  // grant bill-slayer achievement if new; complete today's mission if it
-  // matches; complete the day's bonus mission if pay_bill is today's assigned
-  // bonus. Action XP, mission XP, and bonus XP are separate idempotent events.
-  await awardXpForEvent("bill_paid", String(row.id), 15);
-  await grantAchievementIfNew("bill_slayer", "Bill Slayer", "Marked your first bill as paid");
-  await completeMissionIfPending("pay_bill");
-  await completeBonusIfAssigned("pay_bill", `bill:${row.id}`);
-
-  res.json(MarkBillPaidResponse.parse(mapBill(row)));
+  res.json(MarkBillPaidResponse.parse(mapBill(outcome.bill)));
 });
 
 export default router;
