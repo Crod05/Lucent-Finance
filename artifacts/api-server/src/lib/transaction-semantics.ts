@@ -90,9 +90,27 @@ export interface SemanticEffects {
   incomeAmount: number;
   spendingAmount: number;
   budgetAmount: number;
+  /**
+   * CONSERVATIVE savings policy: non-zero ONLY when the confirmed facts
+   * establish a deliberate asset-allocation of cash toward savings —
+   * currently just `investment_contribution`. Everything else (including
+   * plain transfers, whose destination account type is unknown to the
+   * evaluator) returns 0 rather than manufacturing a savings effect.
+   */
+  savingsAmount: number;
   budgetImpacts: BudgetImpact[];
   netWorthImpact: NetWorthImpact;
-  /** Derived-only: may this transaction support XP/quests/evidence? */
+  /** May this transaction serve as Budget Guardian evidence? */
+  guardianEligible: boolean;
+  /** May this transaction serve as quest evidence? */
+  questEvidenceEligible: boolean;
+  /** May this transaction serve as chapter evidence? */
+  chapterEvidenceEligible: boolean;
+  /**
+   * Convenience aggregate: true only when EVERY specific eligibility above
+   * is true. Never a replacement for the specific fields — consumers that
+   * care about one surface must read that surface's field.
+   */
   eligibleForGamification: boolean;
   requiresReview: boolean;
   reasonCodes: string[];
@@ -108,6 +126,7 @@ const ZERO_EFFECTS = {
   incomeAmount: 0,
   spendingAmount: 0,
   budgetAmount: 0,
+  savingsAmount: 0,
   budgetImpacts: [] as BudgetImpact[],
 };
 
@@ -120,6 +139,9 @@ function blocked(
     ...ZERO_EFFECTS,
     budgetImpacts: [],
     netWorthImpact,
+    guardianEligible: false,
+    questEvidenceEligible: false,
+    chapterEvidenceEligible: false,
     eligibleForGamification: false,
     requiresReview: true,
     reasonCodes,
@@ -186,6 +208,9 @@ export function evaluateTransactionSemantics(
   ): SemanticEffects => ({
     ...ZERO_EFFECTS,
     budgetImpacts: [],
+    guardianEligible: true,
+    questEvidenceEligible: true,
+    chapterEvidenceEligible: true,
     eligibleForGamification: true,
     requiresReview: false,
     reasonCodes,
@@ -246,6 +271,7 @@ export function evaluateTransactionSemantics(
     case "investment_contribution":
       return ok(
         {
+          savingsAmount: amount,
           netWorthImpact: hasTransferPair
             ? { status: "known", amount: 0 }
             : {

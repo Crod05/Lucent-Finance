@@ -24,11 +24,11 @@ import {
  * category, allocated refunds/reimbursements subtract from the original
  * expense's category, transfers and unclassified rows contribute nothing.
  *
- * CONSERVATIVE DUAL GUARD (prefer no reward over a false reward): the badge
- * requires the month to be compliant under BOTH the evaluator-derived
- * spending AND the legacy `budgets.currentSpent` aggregate. `currentSpent`
- * is still what budget pages display; until it is fully replaced by derived
- * totals, a month that either measure says is over budget earns nothing.
+ * ELIGIBILITY IS EVALUATOR-DERIVED: compliance is judged exclusively on the
+ * evaluator-derived per-category spending. The legacy `budgets.currentSpent`
+ * aggregate is display-only and NOT an eligibility guard — a stale
+ * `currentSpent` (e.g. one that a valid refund never reduced) must not deny
+ * a badge the real semantics have earned, and must not grant one either.
  *
  * CAVEATS:
  * - Months are UTC calendar months (see the UTC note in ./xp.ts) — a month is
@@ -42,6 +42,10 @@ export interface BudgetCompliance {
 }
 
 /**
+ * LEGACY DISPLAY HELPER ONLY — judges the `currentSpent` aggregate that
+ * budget pages still show. It is NOT consulted for Budget Guardian
+ * eligibility (see `evaluateBudgetGuardianForMonthInTx`).
+ *
  * A month is compliant when it has at least one active budget and every
  * budget's spending is at or below its limit. A month with no budgets is NOT
  * compliant — the badge rewards staying under budgets, not having none.
@@ -262,11 +266,15 @@ export async function evaluateBudgetGuardianForMonthInTx(
     .from(budgetsTable)
     .where(and(eq(budgetsTable.year, year), eq(budgetsTable.month, month)));
 
-  // Legacy guard: the displayed aggregate must also be within limits.
-  if (!isMonthCompliant(budgets)) return false;
+  // A month with no budgets earns nothing — the badge rewards staying under
+  // budgets, not having none.
+  if (budgets.length === 0) return false;
 
-  // Evaluator-approved budget impact: derived spending per category must be
-  // within each budget's limit too.
+  // AUTHORITATIVE compliance: evaluator-derived spending per category must
+  // be within each budget's limit. The legacy currentSpent aggregate is
+  // deliberately NOT consulted — it can be stale (e.g. never reduced by a
+  // valid refund) and must not cause false-negative or false-positive
+  // awards.
   const derived = await derivedSpentByCategoryInTx(tx, year, month);
   const derivedCompliant = budgets.every(
     (b) => (derived.get(b.category) ?? 0) <= Number(b.monthlyLimit),

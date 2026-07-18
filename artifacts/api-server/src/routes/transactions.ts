@@ -156,8 +156,11 @@ router.post("/transactions", async (req, res): Promise<void> => {
 
     // A new transaction may complete the picture for last month's budgets;
     // evaluate the one-time Budget Guardian badge (idempotent, completed
-    // months only).
-    await evaluateBudgetGuardianInTx(tx);
+    // months only) — but ONLY when the evaluator says this transaction is
+    // Guardian-eligible evidence. Ineligible rows must not trigger it.
+    if (effects.guardianEligible) {
+      await evaluateBudgetGuardianInTx(tx);
+    }
 
     return { kind: "created" as const, row };
   });

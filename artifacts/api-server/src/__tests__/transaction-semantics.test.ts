@@ -59,6 +59,108 @@ describe("evaluateTransactionSemantics (pure)", () => {
     }
   });
 
+  it("exposes the full eligibility contract: savingsAmount, guardianEligible, questEvidenceEligible, chapterEvidenceEligible", () => {
+    for (const classification of ALL_CLASSIFICATIONS) {
+      const e = evaluateTransactionSemantics(confirmed(classification));
+      expect(typeof e.savingsAmount).toBe("number");
+      expect(typeof e.guardianEligible).toBe("boolean");
+      expect(typeof e.questEvidenceEligible).toBe("boolean");
+      expect(typeof e.chapterEvidenceEligible).toBe("boolean");
+      // The aggregate is a pure AND of the specific fields — never broader.
+      expect(e.eligibleForGamification).toBe(
+        e.guardianEligible && e.questEvidenceEligible && e.chapterEvidenceEligible,
+      );
+    }
+  });
+
+  it("savingsAmount is conservative: non-zero ONLY for confirmed investment_contribution", () => {
+    for (const classification of ALL_CLASSIFICATIONS) {
+      const e = evaluateTransactionSemantics(confirmed(classification, 250));
+      if (classification === "investment_contribution") {
+        expect(e.savingsAmount).toBe(250);
+      } else {
+        expect(e.savingsAmount).toBe(0);
+      }
+    }
+    // Not even a suggested investment contribution earns a savings effect.
+    const suggested = evaluateTransactionSemantics({
+      id: 1,
+      amount: 250,
+      classification: "investment_contribution",
+      classificationStatus: "suggested",
+    });
+    expect(suggested.savingsAmount).toBe(0);
+  });
+
+  it("unclassified transactions set EVERY eligibility output to false", () => {
+    for (const facts of [
+      confirmed("unclassified"),
+      { id: 1, amount: 50, classification: "expense", classificationStatus: "unclassified" } as TransactionFacts,
+    ]) {
+      const e = evaluateTransactionSemantics(facts);
+      expect(e.guardianEligible).toBe(false);
+      expect(e.questEvidenceEligible).toBe(false);
+      expect(e.chapterEvidenceEligible).toBe(false);
+      expect(e.eligibleForGamification).toBe(false);
+      expect(e.requiresReview).toBe(true);
+    }
+  });
+
+  it("unresolved suggested transactions set EVERY eligibility output to false", () => {
+    const e = evaluateTransactionSemantics({
+      id: 1,
+      amount: 50,
+      classification: "expense",
+      classificationStatus: "suggested",
+    });
+    expect(e.guardianEligible).toBe(false);
+    expect(e.questEvidenceEligible).toBe(false);
+    expect(e.chapterEvidenceEligible).toBe(false);
+    expect(e.eligibleForGamification).toBe(false);
+    expect(e.requiresReview).toBe(true);
+  });
+
+  it("every review-required result has EVERY eligibility output false (no ambiguous evidence)", () => {
+    // Sweep review-required shapes: withdrawal, un-allocated refund/reimbursement/
+    // adjustment, over-allocated refund, unresolved allocation target.
+    const cases: TransactionFacts[] = [
+      confirmed("investment_withdrawal"),
+      confirmed("refund"),
+      confirmed("reimbursement"),
+      confirmed("adjustment"),
+      confirmed("refund", 50, {
+        outgoingAllocations: [
+          {
+            relationshipType: "refund_of",
+            allocatedAmount: 60,
+            targetTransactionId: 2,
+            targetClassification: "expense",
+            targetClassificationStatus: "confirmed",
+          },
+        ],
+      }),
+      confirmed("refund", 50, {
+        outgoingAllocations: [
+          {
+            relationshipType: "refund_of",
+            allocatedAmount: 50,
+            targetTransactionId: 2,
+            targetClassification: "expense",
+            targetClassificationStatus: "suggested",
+          },
+        ],
+      }),
+    ];
+    for (const facts of cases) {
+      const e = evaluateTransactionSemantics(facts);
+      expect(e.requiresReview).toBe(true);
+      expect(e.guardianEligible).toBe(false);
+      expect(e.questEvidenceEligible).toBe(false);
+      expect(e.chapterEvidenceEligible).toBe(false);
+      expect(e.eligibleForGamification).toBe(false);
+    }
+  });
+
   it("is synchronous and deterministic (no Promise, identical outputs)", () => {
     const a = evaluateTransactionSemantics(confirmed("expense"));
     const b = evaluateTransactionSemantics(confirmed("expense"));
@@ -816,15 +918,90 @@ describe("transaction semantics (DB)", () => {
       expect(await guardian.evaluateBudgetGuardianForMonth(YEAR, MONTH, NOW)).toBe(true);
     });
 
-    it("legacy currentSpent over the limit still blocks the badge (conservative dual guard)", async () => {
+    it("a stale over-limit currentSpent does NOT block the badge when derived spending is compliant", async () => {
+      // currentSpent claims the month blew the budget, but the real semantic
+      // facts (a refunded expense) say it was compliant. Derived spending is
+      // authoritative — the stale aggregate must not create a false negative.
       await db.insert(schema.budgetsTable).values({
         category: "SemDining",
-        monthlyLimit: "100.00",
-        currentSpent: "100.01",
+        monthlyLimit: "500.00",
+        currentSpent: "600.00", // stale: never reduced by the refund below
         month: MONTH,
         year: YEAR,
       });
-      expect(await guardian.evaluateBudgetGuardianForMonth(YEAR, MONTH, NOW)).toBe(false);
+      const spend = await insertTx({
+        date: "2026-03-08",
+        description: "March stale-aggregate spend",
+        amount: 600,
+        category: "SemDining",
+        classification: "expense",
+        classificationStatus: "confirmed",
+      });
+      const refund = await insertTx({
+        date: "2026-03-20",
+        description: "March stale-aggregate refund",
+        amount: 150,
+        type: "income",
+        classification: "refund",
+        classificationStatus: "confirmed",
+      });
+      await allocations.createAllocation({
+        sourceTransactionId: refund.id,
+        targetTransactionId: spend.id,
+        relationshipType: "refund_of",
+        allocatedAmount: 150,
+      });
+      expect(await guardian.evaluateBudgetGuardianForMonth(YEAR, MONTH, NOW)).toBe(true);
+      expect(await badgeCount()).toBe(1);
     });
+
+    it("no false positives: derived overspend blocks the badge even when currentSpent looks compliant", async () => {
+      await db.insert(schema.budgetsTable).values({
+        category: "SemDining",
+        monthlyLimit: "100.00",
+        currentSpent: "0.00", // stale in the OTHER direction
+        month: MONTH,
+        year: YEAR,
+      });
+      await insertTx({
+        date: "2026-03-09",
+        description: "March hidden overspend",
+        amount: 100.01,
+        category: "SemDining",
+        classification: "expense",
+        classificationStatus: "confirmed",
+      });
+      expect(await guardian.evaluateBudgetGuardianForMonth(YEAR, MONTH, NOW)).toBe(false);
+      expect(await badgeCount()).toBe(0);
+    });
+  });
+});
+
+describe("repository compliance", () => {
+  const repoRoot = path.resolve(
+    path.dirname(fileURLToPath(import.meta.url)),
+    "../../../..",
+  );
+
+  it("replit.md documents exactly the supported relationship types (no adjustment_of / split_of)", () => {
+    const md = readFileSync(path.join(repoRoot, "replit.md"), "utf8");
+    expect(md).not.toContain("adjustment_of");
+    expect(md).not.toContain("split_of");
+    for (const t of [
+      "refund_of",
+      "reimbursement_of",
+      "transfer_pair",
+      "reversal_of",
+      "correction_of",
+    ]) {
+      expect(md).toContain(t);
+    }
+  });
+
+  it("the committed implementation-prompt artifact has been removed", () => {
+    const files = readdirSync(path.join(repoRoot, "attached_assets"));
+    expect(files).not.toContain(
+      "Pasted-Please-implement-the-Lucent-Transaction-Semantics-found_1783885086688.txt",
+    );
   });
 });

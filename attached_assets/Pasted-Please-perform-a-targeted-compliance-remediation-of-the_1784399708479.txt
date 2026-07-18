@@ -1,0 +1,357 @@
+Please perform a targeted compliance remediation of the Lucent
+Transaction Semantics implementation in commit:
+
+cb901652e0c8c757e0ab8bb067c4ebbda7df5938
+
+Source of truth:
+
+docs/transaction-semantics.md
+
+This is a defect-correction session only.
+
+Do not add UI, authentication, automatic transaction matching, chapter
+features, boss battles, new product behavior, or unrelated refactors.
+
+Preserve all existing:
+
+- atomic transaction boundaries
+- rollback behavior
+- evidence integrity
+- XP idempotency
+- duplicate protection
+- allocation locking and concurrency protection
+- generic error handling
+
+Before editing, verify each defect below against the current repository.
+
+--------------------------------------------------
+1. REMOVE THE COMMITTED PROMPT ARTIFACT
+--------------------------------------------------
+
+Remove:
+
+attached_assets/Pasted-Please-implement-the-Lucent-Transaction-Semantics-found_1783885086688.txt
+
+Do not remove unrelated legitimate assets.
+
+Confirm the file is deleted from the repository in the new commit.
+
+--------------------------------------------------
+2. COMPLETE THE EVALUATOR CONTRACT
+--------------------------------------------------
+
+Update:
+
+artifacts/api-server/src/lib/transaction-semantics.ts
+
+The typed evaluator result must include:
+
+- incomeAmount
+- spendingAmount
+- budgetAmount
+- savingsAmount
+- netWorthImpact
+- guardianEligible
+- questEvidenceEligible
+- chapterEvidenceEligible
+- eligibleForGamification, if retained as a convenience aggregate
+- requiresReview
+- reasonCodes
+- explanation
+
+Do not use eligibleForGamification as a replacement for the specific
+eligibility outputs.
+
+Policy requirements:
+
+- guardianEligible controls Budget Guardian eligibility.
+- questEvidenceEligible controls quest evidence eligibility.
+- chapterEvidenceEligible controls chapter evidence eligibility.
+- Unclassified transactions must make all eligibility fields false.
+- Unresolved suggested transactions must make all eligibility fields false.
+- Review-required or ambiguous transactions must not support financial-action
+  evidence.
+- Confirmed classifications may become eligible according to evaluator policy.
+
+Define savingsAmount conservatively.
+
+Do not manufacture a savings effect when the available transaction facts do
+not establish one. For classifications without a defensible savings effect,
+return zero.
+
+Preserve the documented sign convention:
+
+Expense:
+- spendingAmount positive
+- budgetAmount positive
+- incomeAmount zero
+
+Income:
+- incomeAmount positive
+- spendingAmount zero
+- budgetAmount zero
+
+Refund:
+- spendingAmount negative
+- budgetAmount negative
+- incomeAmount zero
+
+Allocated reimbursement:
+- spendingAmount negative
+- budgetAmount negative
+- incomeAmount zero
+
+Transfer:
+- incomeAmount zero
+- spendingAmount zero
+- budgetAmount zero
+
+Refunds and reimbursements must never become earned income.
+
+The evaluator must remain:
+
+- pure
+- deterministic
+- free of database imports
+- free of direct or indirect database queries
+- free of persistence
+- unit-testable with plain input objects
+
+Do not add evaluator output columns to the database.
+
+--------------------------------------------------
+3. GATE THE ENTIRE TRANSACTION GAMIFICATION CHAIN
+--------------------------------------------------
+
+Update:
+
+artifacts/api-server/src/routes/transactions.ts
+
+For POST /transactions, semantic eligibility must gate the entire
+financial-action reward and evidence chain.
+
+An ineligible transaction must not trigger:
+
+- XP
+- achievements
+- daily missions
+- streak updates
+- weekly challenges
+- bonus missions
+- Budget Guardian
+- quest evidence
+- chapter evidence
+
+Budget Guardian must only run when:
+
+effects.guardianEligible === true
+
+General transaction gamification must not run when:
+
+- classification is unclassified
+- classification is unresolved suggested
+- requiresReview is true
+- the evaluator says the transaction is ineligible
+
+Keep all applicable work inside the existing outer Drizzle transaction.
+
+Do not introduce nested transactions.
+
+--------------------------------------------------
+4. REMOVE THE BUDGET GUARDIAN DUAL-GUARD DEFECT
+--------------------------------------------------
+
+Update:
+
+artifacts/api-server/src/lib/budget-guardian.ts
+
+Evaluator-derived semantic spending must be authoritative for Budget
+Guardian eligibility.
+
+Do not require stale budgets.currentSpent to independently pass when complete
+evaluator-derived spending has been calculated.
+
+Requirements:
+
+- A valid refund or reimbursement must be able to reduce budget spending.
+- A stale currentSpent value must not cause a false-negative reward result.
+- The change must not create false-positive awards.
+- Cross-month and split-allocation handling must remain correct.
+- All required allocation target facts must continue to be loaded.
+- Preserve the existing transaction object and transaction boundary.
+- Do not introduce nested transactions.
+
+budgets.currentSpent may remain temporarily for legacy display compatibility,
+but it must not be an authoritative Budget Guardian eligibility guard.
+
+--------------------------------------------------
+5. CORRECT REPOSITORY DOCUMENTATION
+--------------------------------------------------
+
+Correct replit.md so the documented relationship types match the schema and
+docs/transaction-semantics.md exactly:
+
+- refund_of
+- reimbursement_of
+- transfer_pair
+- reversal_of
+- correction_of
+
+Remove unsupported references to:
+
+- adjustment_of
+- split_of
+
+Do not rewrite unrelated documentation.
+
+Accurately document that aggregate over-allocation is enforced by the
+transaction-safe allocation helper, not by a database aggregate constraint.
+
+The database itself enforces only the applicable row-level constraints,
+including:
+
+- positive allocated_amount
+- no self-allocation
+- valid relationship type
+- foreign keys
+
+--------------------------------------------------
+6. INSIGHTS AND SCORECARD REVIEW
+--------------------------------------------------
+
+Inspect:
+
+artifacts/api-server/src/routes/insights.ts
+artifacts/api-server/src/routes/gamification.ts
+
+Do not perform a broad migration during this session.
+
+For each remaining use of raw transactions.type or budgets.currentSpent:
+
+- Determine whether it is display-only or affects rewards/evidence.
+- Any reward or evidence decision must use evaluator-derived semantics now.
+- Display-only legacy calculations may remain temporarily.
+- Document every deferred display-only consumer in the completion report.
+- Do not claim those surfaces are semantically migrated if they still use
+  raw type or currentSpent.
+
+--------------------------------------------------
+7. TESTS
+--------------------------------------------------
+
+Add or update behavioral tests for:
+
+1. savingsAmount exists and follows the documented conservative policy.
+2. guardianEligible exists.
+3. questEvidenceEligible exists.
+4. chapterEvidenceEligible exists.
+5. Unclassified transactions set all eligibility outputs to false.
+6. Unresolved suggested transactions set all eligibility outputs to false.
+7. Review-required transactions set all eligibility outputs to false.
+8. POST /transactions does not run Budget Guardian for an ineligible result.
+9. POST /transactions does not run any gamification helper for an ineligible
+   result.
+10. A valid refund can make derived spending compliant when currentSpent is
+    stale and over the limit.
+11. Stale currentSpent no longer creates that false negative.
+12. The revised Budget Guardian logic cannot create a false positive.
+13. Cross-month split-allocation behavior remains correct.
+14. Existing allocation locking and over-allocation tests still pass.
+15. Existing atomic rollback tests still pass.
+16. Existing evidence-integrity tests still pass.
+17. Existing duplicate and idempotency tests still pass.
+18. Unsupported relationship types are absent from replit.md.
+19. The uploaded prompt artifact no longer exists.
+
+Prefer behavioral tests over source-string tests where practical.
+
+A small static purity test may remain, but the evaluator must also be directly
+unit-tested without database setup.
+
+--------------------------------------------------
+8. RECONCILE THE TEST COUNT
+--------------------------------------------------
+
+Run the repository's configured test command.
+
+Report the exact test-runner result, including:
+
+- test files
+- executable test cases
+- passed
+- failed
+- skipped
+- new or modified semantic tests
+
+Investigate and explain why the previous completion report stated 79 tests
+while Codex statically found 68 executable it(...) tests.
+
+Do not report 79 unless the actual configured runner reports 79 executable
+passing test cases.
+
+Also run the full typecheck.
+
+--------------------------------------------------
+9. SCOPE AND REGRESSION REQUIREMENTS
+--------------------------------------------------
+
+Do not add a schema migration unless a genuine schema correction is required.
+
+Do not add stored policy fields such as:
+
+- counts_toward_budget
+- counts_as_income
+- counts_as_spending
+- eligible_for_gamification
+- guardianEligible
+- questEvidenceEligible
+- chapterEvidenceEligible
+- savingsAmount
+
+These are evaluator outputs, not transaction-table facts.
+
+Confirm preservation of:
+
+- one outer transaction for POST /transactions
+- no nested transactions
+- rollback guarantees
+- evidence references
+- evidence fingerprints
+- duplicate 409 behavior
+- XP idempotency
+- bill-payment idempotency
+- generic client-facing 500 errors
+- deterministic allocation locking
+- migration ordering
+
+--------------------------------------------------
+10. COMPLETION REPORT
+--------------------------------------------------
+
+Commit and push the remediation to the repository workflow branch.
+
+Return:
+
+- new commit hash
+- parent commit hash
+- branch name
+- complete changed-file list
+- confirmation that the prompt attachment was removed
+- confirmation that replit.md matches the actual relationship whitelist
+- the final evaluator result type
+- savingsAmount policy
+- confirmation that Budget Guardian only runs when guardianEligible is true
+- confirmation that evaluator-derived spending is authoritative for Budget
+  Guardian eligibility
+- exact configured test-runner output
+- reconciled explanation of the prior 79-versus-68 discrepancy
+- typecheck result
+- confirmation that no stored policy outputs were introduced
+- confirmation that the evaluator performs no database queries
+- list of any remaining raw type/currentSpent consumers
+- classification of each remaining consumer as display-only or
+  reward/evidence-affecting
+- any remaining limitations
+
+Do not describe the implementation as fully compliant unless every confirmed
+defect in this prompt has been resolved.

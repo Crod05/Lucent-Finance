@@ -60,12 +60,15 @@ describe("evaluateBudgetGuardianForMonth (DB)", () => {
   const NOW = new Date("2026-07-11T12:00:00Z");
   let db: typeof import("@workspace/db").db;
   let budgetsTable: typeof import("@workspace/db").budgetsTable;
+  let transactionsTable: typeof import("@workspace/db").transactionsTable;
   let earnedAchievementsTable: typeof import("@workspace/db").earnedAchievementsTable;
   let evaluateBudgetGuardianForMonth: typeof import("../lib/budget-guardian").evaluateBudgetGuardianForMonth;
   let evaluateBudgetGuardian: typeof import("../lib/budget-guardian").evaluateBudgetGuardian;
 
   beforeAll(async () => {
-    ({ db, budgetsTable, earnedAchievementsTable } = await import("@workspace/db"));
+    ({ db, budgetsTable, transactionsTable, earnedAchievementsTable } = await import(
+      "@workspace/db"
+    ));
     ({ evaluateBudgetGuardianForMonth, evaluateBudgetGuardian } = await import(
       "../lib/budget-guardian"
     ));
@@ -104,14 +107,30 @@ describe("evaluateBudgetGuardianForMonth (DB)", () => {
     expect(await badgeCount()).toBe(1);
   });
 
-  it("does not grant for an over-budget month", async () => {
+  it("does not grant for an over-budget month (evaluator-derived spending)", async () => {
     await db.insert(budgetsTable).values([
       { category: "Food", monthlyLimit: "500.00", currentSpent: "300.00", month: 5, year: 2026 },
-      { category: "Fun", monthlyLimit: "150.00", currentSpent: "150.01", month: 5, year: 2026 },
+      { category: "GuardianFun", monthlyLimit: "150.00", currentSpent: "0.00", month: 5, year: 2026 },
     ]);
+    // Real confirmed spending over the GuardianFun limit — compliance is now
+    // judged on evaluator-derived spending, not the currentSpent aggregate.
+    const [over] = await db
+      .insert(transactionsTable)
+      .values({
+        date: "2026-05-15",
+        description: "Guardian overspend May",
+        amount: "150.01",
+        category: "GuardianFun",
+        type: "expense",
+        classification: "expense",
+        classificationStatus: "confirmed",
+      })
+      .returning();
 
     expect(await evaluateBudgetGuardianForMonth(2026, 5, NOW)).toBe(false);
     expect(await badgeCount()).toBe(0);
+
+    await db.delete(transactionsTable).where(eq(transactionsTable.id, over.id));
   });
 
   it("repeated evaluation never duplicates the badge", async () => {
