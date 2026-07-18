@@ -73,23 +73,47 @@ describe("evaluateTransactionSemantics (pure)", () => {
     }
   });
 
-  it("savingsAmount is conservative: non-zero ONLY for confirmed investment_contribution", () => {
+  it("savingsAmount is conservative: 0 for EVERY classification (no verified destination-account facts exist in the input contract)", () => {
     for (const classification of ALL_CLASSIFICATIONS) {
       const e = evaluateTransactionSemantics(confirmed(classification, 250));
-      if (classification === "investment_contribution") {
-        expect(e.savingsAmount).toBe(250);
-      } else {
-        expect(e.savingsAmount).toBe(0);
-      }
+      expect(e.savingsAmount).toBe(0);
     }
-    // Not even a suggested investment contribution earns a savings effect.
-    const suggested = evaluateTransactionSemantics({
-      id: 1,
-      amount: 250,
-      classification: "investment_contribution",
-      classificationStatus: "suggested",
-    });
-    expect(suggested.savingsAmount).toBe(0);
+  });
+
+  it("investment_contribution returns savingsAmount 0 with and without a transfer pair", () => {
+    // Without a transfer pair.
+    const lone = evaluateTransactionSemantics(
+      confirmed("investment_contribution", 250),
+    );
+    expect(lone.savingsAmount).toBe(0);
+    // Even a confirmed transfer pair does not establish the destination as a
+    // tracked savings/investment asset — still no manufactured savings.
+    const paired = evaluateTransactionSemantics(
+      confirmed("investment_contribution", 250, {
+        outgoingAllocations: [
+          {
+            relationshipType: "transfer_pair",
+            allocatedAmount: 250,
+            targetTransactionId: 2,
+            targetClassification: "transfer",
+            targetClassificationStatus: "confirmed",
+          },
+        ],
+      }),
+    );
+    expect(paired.savingsAmount).toBe(0);
+    // Suggested and unclassified likewise.
+    expect(
+      evaluateTransactionSemantics({
+        id: 1,
+        amount: 250,
+        classification: "investment_contribution",
+        classificationStatus: "suggested",
+      }).savingsAmount,
+    ).toBe(0);
+    expect(
+      evaluateTransactionSemantics(confirmed("unclassified", 250)).savingsAmount,
+    ).toBe(0);
   });
 
   it("unclassified transactions set EVERY eligibility output to false", () => {
@@ -998,10 +1022,11 @@ describe("repository compliance", () => {
     }
   });
 
-  it("the committed implementation-prompt artifact has been removed", () => {
+  it("no pasted-prompt artifact (attached_assets/Pasted-*.txt) exists anywhere — pattern-based, catches future files too", () => {
     const files = readdirSync(path.join(repoRoot, "attached_assets"));
-    expect(files).not.toContain(
-      "Pasted-Please-implement-the-Lucent-Transaction-Semantics-found_1783885086688.txt",
+    const pastedPrompts = files.filter(
+      (f) => /^Pasted-/.test(f) && f.endsWith(".txt"),
     );
+    expect(pastedPrompts).toEqual([]);
   });
 });

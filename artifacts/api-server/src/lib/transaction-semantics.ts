@@ -91,11 +91,13 @@ export interface SemanticEffects {
   spendingAmount: number;
   budgetAmount: number;
   /**
-   * CONSERVATIVE savings policy: non-zero ONLY when the confirmed facts
-   * establish a deliberate asset-allocation of cash toward savings —
-   * currently just `investment_contribution`. Everything else (including
-   * plain transfers, whose destination account type is unknown to the
-   * evaluator) returns 0 rather than manufacturing a savings effect.
+   * CONSERVATIVE savings policy: currently ALWAYS 0. A classification alone
+   * (even confirmed `investment_contribution`, even with a transfer pair)
+   * does not prove a savings effect — the evaluator's input facts do not
+   * include verified destination-account information (tracked savings/
+   * investment asset, eligible amount). Zero is returned rather than
+   * manufacturing false precision. Reserved for a future implementation
+   * that derives a non-zero value ONLY from explicit verified account facts.
    */
   savingsAmount: number;
   budgetImpacts: BudgetImpact[];
@@ -269,9 +271,11 @@ export function evaluateTransactionSemantics(
       );
 
     case "investment_contribution":
+      // savingsAmount stays 0: classification alone (and even a transfer
+      // pair) cannot prove the destination is a tracked savings/investment
+      // asset, so no savings effect is manufactured (see SemanticEffects).
       return ok(
         {
-          savingsAmount: amount,
           netWorthImpact: hasTransferPair
             ? { status: "known", amount: 0 }
             : {
