@@ -1,15 +1,15 @@
 CREATE TABLE "users" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"auth_provider" text NOT NULL,
-	"auth_provider_subject" text,
-	"email" text,
-	"display_name" text,
-	"timezone" text,
-	"status" text DEFAULT 'active' NOT NULL,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL,
-	"updated_at" timestamp with time zone DEFAULT now() NOT NULL,
-	CONSTRAINT "users_provider_subject_unique" UNIQUE("auth_provider","auth_provider_subject"),
-	CONSTRAINT "users_status_check" CHECK ("users"."status" IN ('active', 'disabled', 'migration_pending'))
+        "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+        "auth_provider" text NOT NULL,
+        "auth_provider_subject" text,
+        "email" text,
+        "display_name" text,
+        "timezone" text,
+        "status" text DEFAULT 'active' NOT NULL,
+        "created_at" timestamp with time zone DEFAULT now() NOT NULL,
+        "updated_at" timestamp with time zone DEFAULT now() NOT NULL,
+        CONSTRAINT "users_provider_subject_unique" UNIQUE("auth_provider","auth_provider_subject"),
+        CONSTRAINT "users_status_check" CHECK ("users"."status" IN ('active', 'disabled', 'migration_pending'))
 );
 --> statement-breakpoint
 ALTER TABLE "transactions" ADD COLUMN "user_id" uuid;--> statement-breakpoint
@@ -52,15 +52,20 @@ ON CONFLICT ("id") DO NOTHING;--> statement-breakpoint
 UPDATE "accounts" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" IS NULL;--> statement-breakpoint
 UPDATE "transactions" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" IS NULL;--> statement-breakpoint
 UPDATE "budgets" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" IS NULL;--> statement-breakpoint
-UPDATE "bills" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" IS NULL;--> statement-breakpoint
--- Backfill gamification tables: ONLY rows whose user_id is exactly
--- 'default-user' are migrated to the owner UUID serialized as text. The
--- columns stay text and keep DEFAULT 'default-user' during Session A because
--- runtime helpers still write under the shared default-user model
--- (removing the defaults and converting to uuid FKs is a Session B hard
--- gate). Arbitrary non-default user_id strings are never touched.
-UPDATE "user_progress" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" = 'default-user';--> statement-breakpoint
-UPDATE "daily_missions" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" = 'default-user';--> statement-breakpoint
-UPDATE "bonus_missions" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" = 'default-user';--> statement-breakpoint
-UPDATE "earned_achievements" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" = 'default-user';--> statement-breakpoint
-UPDATE "xp_events" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" = 'default-user';
+UPDATE "bills" SET "user_id" = '00000000-0000-4000-8000-000000000001' WHERE "user_id" IS NULL;
+-- ---------------------------------------------------------------------------
+-- GAMIFICATION TABLES ARE DELIBERATELY NOT TOUCHED IN SESSION A.
+--
+-- user_progress / daily_missions / bonus_missions / earned_achievements /
+-- xp_events keep their text user_id columns, their DEFAULT 'default-user',
+-- and their existing 'default-user' rows. The production runtime still reads
+-- and writes through DEFAULT_USER = 'default-user'; relabeling those rows
+-- here would make all existing XP / achievement / mission history invisible
+-- to the current runtime (a visible behavior regression).
+--
+-- Session B migrates gamification ownership atomically with: removal of both
+-- DEFAULT_USER constants, propagation of the authenticated internal userId,
+-- conversion of gamification user_id from text to uuid with FKs to users,
+-- updates to every gamification reader/writer, and verification that all
+-- existing history remains visible through the migrated owner.
+-- ---------------------------------------------------------------------------

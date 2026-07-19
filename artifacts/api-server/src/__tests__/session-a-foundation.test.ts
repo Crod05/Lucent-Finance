@@ -194,6 +194,34 @@ describe("preserved Session A invariants (Session B hard gates untouched)", () =
     }
   });
 
+  it("checked-in migration 0003 does NOT relabel gamification rows (Session B gate)", async () => {
+    // Static assertion on the migration file itself: Session A must not move
+    // gamification data off 'default-user' — the runtime still reads through
+    // DEFAULT_USER, and relabeling would hide all existing history.
+    const { readFileSync } = await import("node:fs");
+    const { fileURLToPath } = await import("node:url");
+    const path = await import("node:path");
+    const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../../../..");
+    const migration = readFileSync(
+      path.join(repoRoot, "lib/db/drizzle/0003_dapper_patch.sql"),
+      "utf8",
+    );
+    for (const table of ["user_progress", "daily_missions", "bonus_missions", "earned_achievements", "xp_events"]) {
+      expect(migration, `migration must not UPDATE ${table}`).not.toMatch(
+        new RegExp(`UPDATE\\s+"?${table}"?`, "i"),
+      );
+    }
+  });
+
+  it("gamification rows (if any) remain under 'default-user' or explicit test identities — never the legacy owner UUID", async () => {
+    for (const table of ["user_progress", "daily_missions", "bonus_missions", "earned_achievements", "xp_events"]) {
+      const r = await rows(
+        sql`SELECT count(*) AS n FROM ${sql.raw(table)} WHERE user_id = ${LEGACY_OWNER_UUID}`,
+      );
+      expect(Number(r[0].n), table).toBe(0);
+    }
+  });
+
   it("xp_events idempotency key UNIQUE(user_id, event_type, source_id) is intact", async () => {
     const r = await rows(
       sql`SELECT 1 FROM pg_indexes WHERE tablename = 'xp_events' AND indexdef LIKE '%UNIQUE%'

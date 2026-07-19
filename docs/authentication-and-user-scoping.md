@@ -322,6 +322,12 @@ WHERE user_id IS NULL;
 
 Repeat for every root owned table.
 
+> **Amended sequencing note (2026-07-19):** for tables whose `user_id` is the
+> runtime's live lookup key (the gamification tables keyed on the literal
+> `'default-user'`), this backfill must NOT run before the runtime identity is
+> rebound — see the split Stage C1/C2 in section A6 and the Session A
+> implementation report.
+
 The migration must produce counts:
 
 ```text
@@ -1371,10 +1377,9 @@ Order matters; each stage is a separate reviewable migration. **No migration fil
 
 1. **Stage A** — create `users`; insert the migrated owner row: `status='migration_pending'`, `auth_provider='clerk'`, subject NULL. The legacy key `"default-user"` is a text constant, not a UUID — it cannot be preserved as `users.id`; a fresh UUID is generated and recorded in migration output.
 2. **Stage B** — add **nullable** `user_id uuid REFERENCES users(id) ON DELETE RESTRICT` to `accounts`, `transactions`, `budgets`, `bills`. Gamification tables keep `text user_id` for now (A2 decision) — no column add needed there.
-3. **Stage C** — backfill:
-   - `UPDATE accounts/transactions/budgets/bills SET user_id = '<owner-uuid>' WHERE user_id IS NULL;`
-   - `UPDATE user_progress/daily_missions/bonus_missions/earned_achievements/xp_events SET user_id = '<owner-uuid>' WHERE user_id = 'default-user';`
-   - Emit per-table backfilled counts; verify zero NULL / zero `'default-user'` rows remain.
+3. **Stage C** — backfill (SPLIT by the 2026-07-19 amendment — see the Session A implementation report):
+   - **Stage C1 (done in Session A)**: `UPDATE accounts/transactions/budgets/bills SET user_id = '<owner-uuid>' WHERE user_id IS NULL;` — emit per-table counts; verify zero NULL rows remain.
+   - **Stage C2 (Session B ONLY — hard gate)**: `UPDATE user_progress/daily_missions/bonus_missions/earned_achievements/xp_events SET user_id = '<owner-uuid>' WHERE user_id = 'default-user';` — this MUST land atomically with the `DEFAULT_USER` removal and runtime userId rebind, never earlier: relabeling gamification rows while the runtime still reads `'default-user'` makes the app lazily recreate empty rows and hides all existing XP/achievement history (this exact regression occurred and was reverted). Only after Stage C2 does "zero `'default-user'` rows" become a verification target.
 4. **Stage C-verify** — owner-consistency checks (all must return 0 rows):
    - allocations whose source and target transactions have different `user_id`;
    - `bonus_missions.evidence_ref` parsing to a transaction id whose owner differs from the mission's owner (use `findOrphanedTransactionEvidenceRefs` in `api-server/src/lib/evidence.ts` as the parsing reference);
@@ -1444,25 +1449,39 @@ Authentication: every non-`/healthz` route → 401 unauthenticated; Clerk verifi
 
 ---
 
-## Session A implementation report (implemented 2026-07-19)
+## Session A implementation report (implemented 2026-07-19; amended same day)
 
 Everything in this section IS implemented and verified. Sessions B–D remain proposals.
+
+> **Amendment (2026-07-19):** the original Session A checkpoint deviated in two
+> ways and was corrected before approval: (1) the migration initially relabeled
+> gamification rows from `'default-user'` to the owner UUID, which hid existing
+> XP/achievement/mission history from the current runtime — that backfill has
+> been REMOVED from the checked-in migration and deferred to Session B, and the
+> dev database was restored so existing progression is visible again; (2) a
+> pre-existing orphaned bonus-mission evidence ref was initially repaired
+> (nulled) — that repair was reverted; the anomaly is now detected and
+> REPORTED by the verification tooling, never silently fixed. Details below.
 
 ### What was built
 
 1. **`users` table** (`lib/db/src/schema/users.ts`): uuid PK (`gen_random_uuid()`), `auth_provider` NOT NULL, nullable `auth_provider_subject` / `email` / `display_name` / `timezone`, `status` text DEFAULT `'active'` with CHECK (`active|disabled|migration_pending`), timestamps, `UNIQUE(auth_provider, auth_provider_subject)` (`users_provider_subject_unique`; NULL subjects are distinct, so multiple `migration_pending` placeholders can coexist).
 2. **Nullable ownership columns**: `user_id uuid REFERENCES users(id) ON DELETE RESTRICT` added to `accounts`, `transactions`, `budgets`, `bills`. No default, omitted from every insert schema — Session A writers do not set ownership. Indexes: `accounts_user_id_idx`, `transactions_user_id_date_idx`, `budgets_user_id_year_month_idx`, `bills_user_id_due_date_idx`. No `(user_id, created_at)` index on `xp_events` — its existing UNIQUE `(user_id, event_type, source_id)` already leads with `user_id`.
-3. **Migration `0003_dapper_patch.sql`** (drizzle-generated DDL + hand-authored deterministic backfill): inserts ONE legacy owner with the fixed documented UUID `00000000-0000-4000-8000-000000000001` (`clerk`, NULL subject, `status='migration_pending'`, `ON CONFLICT (id) DO NOTHING`), then backfills the four financial tables (`user_id = owner WHERE user_id IS NULL`) and the five gamification tables (`user_id = owner-uuid-as-text WHERE user_id = 'default-user'`; arbitrary non-default strings are never touched). Verified to build a fresh DB end-to-end via `pnpm --filter @workspace/db run migrate` on a scratch database.
-4. **Dev DB application**: the dev database has no drizzle journal (built via `push`), so 0003 was applied via psql in a single transaction after a `pg_dump` snapshot. Backfill counts: accounts 3, transactions 20, budgets 7, bills 8; user_progress 1, daily_missions 9, bonus_missions 2, earned_achievements 3, xp_events 7. Post-apply: zero NULL owners, zero remaining `default-user` rows, exactly one `migration_pending` owner.
-5. **Verification script** `scripts/src/verify-session-a.ts` (`pnpm --filter @workspace/scripts run verify-session-a`): read-only; checks owner row shape, financial NULL-owner counts, gamification default-user counts, distinct-identity report, transaction↔account owner equality, allocation source/target owner equality, and bonus-mission evidence refs (canonical `transaction:<id>` format, mirrored from `evidence.ts`'s strict parser). All checks pass against the migrated dev DB.
+3. **Migration `0003_dapper_patch.sql`** (drizzle-generated DDL + hand-authored deterministic backfill): inserts ONE legacy owner with the fixed documented UUID `00000000-0000-4000-8000-000000000001` (`clerk`, NULL subject, `status='migration_pending'`, `ON CONFLICT (id) DO NOTHING`), then backfills ONLY the four financial tables (`user_id = owner WHERE user_id IS NULL`). **The five gamification tables are deliberately NOT touched** — the checked-in migration contains no gamification UPDATE statements (guarded by a static test). Verified to build a fresh DB end-to-end via `pnpm --filter @workspace/db run migrate` on a scratch database.
+4. **Dev DB application**: the dev database has no drizzle journal (built via `push`), so the migration SQL was applied via psql in a single transaction after a `pg_dump` snapshot. Financial backfill counts: accounts 3, transactions 20, budgets 7, bills 8 — zero NULL owners after backfill; exactly one `migration_pending` owner. Gamification rows (user_progress 1, daily_missions 9, bonus_missions 2, earned_achievements 3, xp_events 7) remain under `'default-user'`, so all existing XP (315), level (3), streaks (current 1 / longest 5), achievements, and missions stay visible through the current runtime.
+5. **Verification script** `scripts/src/verify-session-a.ts` (`pnpm --filter @workspace/scripts run verify-session-a`): read-only; checks owner row shape, financial NULL-owner counts, that NO gamification row carries the owner UUID (premature migration = FAIL), transaction↔account owner equality, allocation source/target owner equality, and detects orphaned bonus-mission evidence refs (canonical `transaction:<id>` format, mirrored from `evidence.ts`'s strict parser) as reported `[ANOMALY]` items. Exit contract: 1 on any FAIL; 0 with an explicit summary line when only known anomalies are present.
 6. **Test fixtures** (`artifacts/api-server/src/__tests__/fixtures/users.ts`): `TEST_USER`, `USER_A`, `USER_B` with fixed reserved UUIDs, `clerk` provider, unique fake test subjects, `active` status; seeded into the scratch vitest DB by `global-setup.ts` after migrations. Inert until Session B.
-7. **Foundation tests** (`session-a-foundation.test.ts`, 14 tests): fixture presence, uuid default, provider-subject uniqueness, NULL-subject coexistence, status CHECK, single migration_pending owner, nullable/no-default ownership columns, FK rejection, RESTRICT enforcement, ownership indexes, **global** fingerprint uniqueness (schema + behavioral cross-user collision proof), gamification columns still text with DEFAULT `'default-user'`, xp idempotency key intact. Full suite: 104/104 passing; `pnpm run typecheck` clean.
+7. **Foundation tests** (`session-a-foundation.test.ts`, 16 tests): fixture presence, uuid default, provider-subject uniqueness, NULL-subject coexistence, status CHECK, single migration_pending owner, nullable/no-default ownership columns, FK rejection, RESTRICT enforcement, ownership indexes, **global** fingerprint uniqueness (schema + behavioral cross-user collision proof), gamification columns still text with DEFAULT `'default-user'`, a static guard that migration 0003 contains NO gamification UPDATE statements, a check that no gamification row carries the owner UUID, and the xp idempotency key intact.
 
-### Data notes
+### Known anomaly (reported, NOT repaired)
 
-- **Pre-existing orphan repaired**: dev-DB `bonus_missions` row 2 referenced `transaction:29`, which no longer existed. The `pg_dump` snapshot proves the orphan predated this migration (stale data from before the delete-clears-evidence fix). Repaired by nulling the evidence ref — identical to the runtime `DELETE /transactions/:id` semantics (clear, never remap).
-- **Known, intended runtime consequence**: gamification rows were relabeled from `'default-user'` to the owner UUID string, but the runtime still operates under `DEFAULT_USER = "default-user"`. The dev app therefore lazily creates a fresh `default-user` progress row (dashboard shows level 1). XP history is fully preserved in the DB under the owner UUID; Session B rebinds runtime identity to the internal user and this resolves. This is the staged plan working as designed, not data loss.
+- **Orphaned bonus-mission evidence ref (pre-existing)**: dev-DB `bonus_missions` row **id 2** has `evidence_ref = 'transaction:29'`; transaction 29 does not exist (dev transactions span ids 1-26). The `pg_dump` pre-migration snapshot proves the reference predates Session A - it is stale data from before the delete-clears-evidence runtime fix landed (transaction 29 was evidently deleted before that fix existed). **No checked-in migration modifies this row.** During the original (pre-amendment) work the local dev row was temporarily nulled; that repair was **reverted** from the snapshot value, so the dev DB again holds `transaction:29` and the verification script reports it as `[ANOMALY]`. Recommended separate repair procedure (requires explicit approval): null the ref - never remap - mirroring the runtime `DELETE /transactions/:id` semantics, via a one-off reviewed statement such as `UPDATE bonus_missions SET evidence_ref = NULL WHERE id = 2 AND evidence_ref = 'transaction:29';`, and record it in this document.
 
 ### Explicitly NOT done (Session B+ hard gates)
 
-No auth middleware, no route scoping, no NOT NULL on ownership columns, fingerprint uniqueness still global (documented gate in `transactions.ts`), `DEFAULT_USER` untouched, gamification `user_id` columns still text with their defaults.
+- No authentication (no auth middleware; Clerk not integrated).
+- No authorization; all routes remain unprotected and unscoped.
+- No NOT NULL on the financial ownership columns (they stay nullable until Session B updates every writer).
+- Fingerprint uniqueness remains **global** (documented gate in `transactions.ts`).
+- `DEFAULT_USER` constants untouched; runtime behavior unchanged.
+- **Gamification ownership migration deferred to Session B**, where it must happen atomically with: removal of both `DEFAULT_USER` constants, propagation of the authenticated internal userId, conversion of gamification `user_id` from text to uuid with FKs to `users`, updates to every gamification reader/writer, and verification that all existing history remains visible through the migrated owner. Until then gamification data remains on `'default-user'` so current behavior is preserved. No temporary compatibility fallback, duplicate rows, or second default owner were introduced.
