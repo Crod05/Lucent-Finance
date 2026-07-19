@@ -1441,3 +1441,28 @@ Authentication: every non-`/healthz` route → 401 unauthenticated; Clerk verifi
 - **Assumption (inferred, not verified):** no out-of-band clients exist besides the bundled frontend; if any external script hits the API, Session B's 401 wall breaks it by design.
 
 *End of repository-specific audit. Nothing above the divider was modified; nothing in this section is implemented.*
+
+---
+
+## Session A implementation report (implemented 2026-07-19)
+
+Everything in this section IS implemented and verified. Sessions B–D remain proposals.
+
+### What was built
+
+1. **`users` table** (`lib/db/src/schema/users.ts`): uuid PK (`gen_random_uuid()`), `auth_provider` NOT NULL, nullable `auth_provider_subject` / `email` / `display_name` / `timezone`, `status` text DEFAULT `'active'` with CHECK (`active|disabled|migration_pending`), timestamps, `UNIQUE(auth_provider, auth_provider_subject)` (`users_provider_subject_unique`; NULL subjects are distinct, so multiple `migration_pending` placeholders can coexist).
+2. **Nullable ownership columns**: `user_id uuid REFERENCES users(id) ON DELETE RESTRICT` added to `accounts`, `transactions`, `budgets`, `bills`. No default, omitted from every insert schema — Session A writers do not set ownership. Indexes: `accounts_user_id_idx`, `transactions_user_id_date_idx`, `budgets_user_id_year_month_idx`, `bills_user_id_due_date_idx`. No `(user_id, created_at)` index on `xp_events` — its existing UNIQUE `(user_id, event_type, source_id)` already leads with `user_id`.
+3. **Migration `0003_dapper_patch.sql`** (drizzle-generated DDL + hand-authored deterministic backfill): inserts ONE legacy owner with the fixed documented UUID `00000000-0000-4000-8000-000000000001` (`clerk`, NULL subject, `status='migration_pending'`, `ON CONFLICT (id) DO NOTHING`), then backfills the four financial tables (`user_id = owner WHERE user_id IS NULL`) and the five gamification tables (`user_id = owner-uuid-as-text WHERE user_id = 'default-user'`; arbitrary non-default strings are never touched). Verified to build a fresh DB end-to-end via `pnpm --filter @workspace/db run migrate` on a scratch database.
+4. **Dev DB application**: the dev database has no drizzle journal (built via `push`), so 0003 was applied via psql in a single transaction after a `pg_dump` snapshot. Backfill counts: accounts 3, transactions 20, budgets 7, bills 8; user_progress 1, daily_missions 9, bonus_missions 2, earned_achievements 3, xp_events 7. Post-apply: zero NULL owners, zero remaining `default-user` rows, exactly one `migration_pending` owner.
+5. **Verification script** `scripts/src/verify-session-a.ts` (`pnpm --filter @workspace/scripts run verify-session-a`): read-only; checks owner row shape, financial NULL-owner counts, gamification default-user counts, distinct-identity report, transaction↔account owner equality, allocation source/target owner equality, and bonus-mission evidence refs (canonical `transaction:<id>` format, mirrored from `evidence.ts`'s strict parser). All checks pass against the migrated dev DB.
+6. **Test fixtures** (`artifacts/api-server/src/__tests__/fixtures/users.ts`): `TEST_USER`, `USER_A`, `USER_B` with fixed reserved UUIDs, `clerk` provider, unique fake test subjects, `active` status; seeded into the scratch vitest DB by `global-setup.ts` after migrations. Inert until Session B.
+7. **Foundation tests** (`session-a-foundation.test.ts`, 14 tests): fixture presence, uuid default, provider-subject uniqueness, NULL-subject coexistence, status CHECK, single migration_pending owner, nullable/no-default ownership columns, FK rejection, RESTRICT enforcement, ownership indexes, **global** fingerprint uniqueness (schema + behavioral cross-user collision proof), gamification columns still text with DEFAULT `'default-user'`, xp idempotency key intact. Full suite: 104/104 passing; `pnpm run typecheck` clean.
+
+### Data notes
+
+- **Pre-existing orphan repaired**: dev-DB `bonus_missions` row 2 referenced `transaction:29`, which no longer existed. The `pg_dump` snapshot proves the orphan predated this migration (stale data from before the delete-clears-evidence fix). Repaired by nulling the evidence ref — identical to the runtime `DELETE /transactions/:id` semantics (clear, never remap).
+- **Known, intended runtime consequence**: gamification rows were relabeled from `'default-user'` to the owner UUID string, but the runtime still operates under `DEFAULT_USER = "default-user"`. The dev app therefore lazily creates a fresh `default-user` progress row (dashboard shows level 1). XP history is fully preserved in the DB under the owner UUID; Session B rebinds runtime identity to the internal user and this resolves. This is the staged plan working as designed, not data loss.
+
+### Explicitly NOT done (Session B+ hard gates)
+
+No auth middleware, no route scoping, no NOT NULL on ownership columns, fingerprint uniqueness still global (documented gate in `transactions.ts`), `DEFAULT_USER` untouched, gamification `user_id` columns still text with their defaults.

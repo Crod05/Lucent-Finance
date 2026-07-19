@@ -14,3 +14,8 @@ description: How migrations, drizzle config paths, and the vitest scratch-DB set
 
 **Rule:** Cross-table soft references (`bonus_missions.evidence_ref` = `"transaction:<id>"`, `"bill:<id>"`) have no FK — any migration or runtime path that deletes referenced rows must remap (duplicates → same-group survivor) or NULL the refs first; never attach evidence to an unrelated row. Format helpers + orphan validator live in one module (`evidence.ts`).
 **Why:** The 0001 duplicate-cleanup DELETE would have silently orphaned evidence refs; dev/prod DBs keep no drizzle journal (push-managed), so pre-release migrations can be amended in place — scratch/test DBs rebuild from files.
+
+## Session A additions (2026-07)
+- The dev DB was built via `drizzle-kit push` and has NO migrations journal — never run `migrate` against it. Apply new checked-in migration SQL manually via `psql --single-transaction` (strip `--> statement-breakpoint`), after a pg_dump snapshot; verify the same file on a scratch DB with `run migrate` first.
+- Drizzle `db.execute` rejections are wrapped ("Failed query: …") with the real Postgres error on `.cause` — constraint-name assertions must check `err.cause.message`, not the top-level message.
+- Staged ownership migrations that relabel gamification rows away from the runtime's hardcoded identity make the app lazily recreate fresh rows (looks like an XP reset in dev); history is preserved under the new id — expected until the runtime identity is rebound.

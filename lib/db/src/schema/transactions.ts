@@ -1,7 +1,8 @@
-import { pgTable, text, serial, timestamp, numeric, integer, date, uniqueIndex, check } from "drizzle-orm/pg-core";
+import { pgTable, text, serial, timestamp, numeric, integer, date, uniqueIndex, check, uuid, index } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod/v4";
+import { usersTable } from "./users";
 
 // ---------------------------------------------------------------------------
 // Semantic classification vocabulary (see docs/transaction-semantics.md).
@@ -64,12 +65,23 @@ export const transactionsTable = pgTable(
     classificationStatus: text("classification_status").notNull().default("unclassified"),
     classificationConfidence: text("classification_confidence").notNull().default("none"),
     classificationSource: text("classification_source").notNull().default("unknown"),
+    // Session A: nullable ownership column, backfilled for existing rows.
+    // Becomes NOT NULL in Session B once all writers supply the authenticated
+    // internal userId. No default — an ownerless insert must stay visible.
+    userId: uuid("user_id").references(() => usersTable.id, { onDelete: "restrict" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
+    index("transactions_user_id_date_idx").on(t.userId, t.date),
     // Enforces dedup at the database level: two rows can never share a
     // non-null fingerprint, even under concurrent inserts. NULL fingerprints
     // (pre-fingerprint legacy rows) are exempt via the partial index.
+    //
+    // SESSION B HARD GATE (do NOT change in Session A): this constraint is
+    // deliberately still GLOBAL. It may be replaced with
+    // UNIQUE(user_id, fingerprint) WHERE fingerprint IS NOT NULL only after
+    // every transaction insert sets user_id, user_id is NOT NULL, and routes
+    // are owner-scoped — otherwise NULL ownership would bypass uniqueness.
     uniqueIndex("transactions_fingerprint_unique")
       .on(t.fingerprint)
       .where(sql`${t.fingerprint} IS NOT NULL`),
@@ -92,6 +104,6 @@ export const transactionsTable = pgTable(
   ]
 );
 
-export const insertTransactionSchema = createInsertSchema(transactionsTable).omit({ id: true, createdAt: true, fingerprint: true });
+export const insertTransactionSchema = createInsertSchema(transactionsTable).omit({ id: true, createdAt: true, fingerprint: true, userId: true });
 export type InsertTransaction = z.infer<typeof insertTransactionSchema>;
 export type Transaction = typeof transactionsTable.$inferSelect;
