@@ -1205,3 +1205,239 @@ This inventory session should happen next. It will reveal the actual tables and 
 [4]: https://firebase.google.com/docs/auth/admin/verify-id-tokens?utm_source=chatgpt.com "Verify ID Tokens | Firebase Authentication - Google"
 [5]: https://auth0.com/docs/secure/tokens/token-best-practices?utm_source=chatgpt.com "Token Best Practices - Auth0 Docs"
 [6]: https://clerk.com/docs/react/getting-started/quickstart?utm_source=chatgpt.com "React Quickstart - Getting started | Clerk Docs"
+
+---
+
+# REPOSITORY-SPECIFIC AUDIT — Lucent Finance (added after the approved architecture above)
+
+> **Status of this section:** Documentation-only audit performed against the actual
+> repository (`Crod05/Lucent-Finance`, branch `main`, baseline commit
+> `27b2cc366f32690ada9a8f2d7ec95de9cb49ddd1`). Nothing in this section is
+> implemented. The architecture content above this line is the previously
+> approved provider-independent design and is preserved unchanged.
+>
+> Labels used throughout:
+> - **[APPROVED]** — decision already made in the architecture document above.
+> - **[VERIFIED]** — fact confirmed by direct inspection of the repository at the baseline commit.
+> - **[PROPOSAL]** — recommended design; NOT implemented.
+> - **[OPEN]** — question or risk that cannot be resolved from the repository alone.
+
+## A0. Audit baseline
+
+- **[VERIFIED]** Branch: `main`; baseline commit `27b2cc36…` ("Add authentication and user-scoping architecture specification").
+- **[VERIFIED]** Working tree at audit start: clean except this session's auto-attached prompt file (not committed, removed before checkpoint).
+- **[VERIFIED]** Stack: Express 5 API (`artifacts/api-server`), React + Vite frontend (`artifacts/lucent-finance`, `wouter` routing), PostgreSQL + Drizzle ORM (`lib/db`), Orval-generated client (`lib/api-client-react`) and Zod validation (`lib/api-zod`) from `lib/api-spec/openapi.yaml`.
+- **[VERIFIED]** No authentication of any kind is implemented. There is no session, cookie, token, or Authorization-header middleware in the API server.
+
+## A1. Current authentication inventory
+
+### Server structure — [VERIFIED]
+
+| Item | Location |
+|---|---|
+| Server entry point | `artifacts/api-server/src/index.ts` (imports `app`, listens on `process.env.PORT`) |
+| App factory / middleware registration | `artifacts/api-server/src/app.ts` |
+| Router aggregation | `artifacts/api-server/src/routes/index.ts`, mounted at `/api` in `app.ts` |
+| Global middleware (in order) | `pino-http` logging → `cors()` (permissive, default config, `app.ts` line 33) → `express.json()` / `express.urlencoded()` → routers → central error handler (generic 500, logs via `req.log`) |
+
+- **[VERIFIED]** There is NO auth-like middleware. `artifacts/api-server/src/lib/logger.ts` redacts `req.headers.cookie`, `res.headers['set-cookie']`, and `Authorization` in logs, but nothing ever sets or reads these headers. `cookie-parser` is present as a dependency in `artifacts/api-server/package.json` but is never registered or imported anywhere in the server code — cookies are entirely unused at runtime.
+- **[VERIFIED]** `SESSION_SECRET` is referenced NOWHERE in the codebase (grep across all `.ts`/`.json`: zero hits). Its existence as a workspace secret is environment context, not repository content — it is dormant either way.
+- **[VERIFIED]** The only identity-adjacent env var in runtime code is `NODE_ENV`: `isOnboardingResetAllowed` (`artifacts/api-server/src/lib/env.ts`) gates `POST /api/gamification/onboarding/reset` to `development`/`test`; production returns 403.
+- **[VERIFIED]** No login, logout, registration, session, identity, or user-resolution code exists anywhere.
+
+### Client identifier trust — [VERIFIED]
+
+- No production route reads `userId`/`playerId` from body, query, or path. Identity is implicit: the shared `DEFAULT_USER` constant.
+- The application trusts, without ownership verification: transaction IDs, budget IDs, bill IDs, account IDs (all path `:id` params) — every row is reachable by every caller because there is exactly one shared owner.
+- The frontend never sends or stores a user identifier (no localStorage identity, no userId params). Generated response schemas (`lib/api-zod/src/generated/api.ts`) include a server-supplied `userId` field on gamification responses — informational only.
+- `lib/api-client-react/src/custom-fetch.ts` contains a dormant `setAuthTokenGetter` hook (attaches `Authorization: Bearer` when configured; lines 43–44, 354–355). It is never invoked by the web frontend. A code comment (line 41) anticipates cookie-based auth for web.
+
+## A2. Table ownership matrix
+
+**[VERIFIED]** All tables use `serial("id").primaryKey()` (auto-increment integers, NOT UUIDs). Nine tables exist, all in `lib/db/src/schema/`. Migrations: `lib/db/drizzle/0000_smart_kitty_pryde.sql`, `0001_fast_supernaut.sql`, `0002_salty_ben_grimm.sql`.
+
+Two ownership regimes exist today:
+
+1. **Financial tables — NO ownership column at all** (globally shared):
+
+| Table | File | PK | user_id? | Unique constraints today | Proposed ownership — [PROPOSAL] |
+|---|---|---|---|---|---|
+| `accounts` | `accounts.ts` | serial | **none** | none beyond PK | direct `user_id uuid NOT NULL → users.id`; index `(user_id)`; reads/writes scoped `eq(accounts.userId, auth.userId)` |
+| `transactions` | `transactions.ts` | serial | **none** | `transactions_fingerprint_unique` (partial, on `fingerprint`) — **currently GLOBAL** | direct `user_id`; index `(user_id, date)`; fingerprint uniqueness MUST become user-scoped: `UNIQUE(user_id, fingerprint) WHERE fingerprint IS NOT NULL` — two users legitimately produce identical fingerprints (same date/description/amount/type/accountId shape) |
+| `budgets` | `budgets.ts` | serial | **none** | none (no `(category, month, year)` uniqueness exists today — [VERIFIED]) | direct `user_id`; index `(user_id, year, month)`; consider `UNIQUE(user_id, category, month, year)` as a separate, pre-existing gap ([OPEN] — duplicates are possible today) |
+| `bills` | `bills.ts` | serial | **none** | none beyond PK | direct `user_id`; index `(user_id, due_date)` |
+| `transaction_allocations` | `transaction_allocations.ts` | serial | **none** | CHECKs: positive amount, no self-allocation, relationship-type whitelist; FKs to `transactions.id` on both sides, `onDelete: cascade`; indexes on source and target | **inherit ownership** through BOTH parents. Invariant required: `source.user_id == target.user_id == auth.userId`. Enforcement point: `createAllocationInTx` (`api-server/src/lib/allocations.ts`) already locks both rows `FOR UPDATE` in id order — the owner-equality check belongs inside that same lock scope. Re-parenting: no update path for allocations exists today ([VERIFIED] — create only), so only INSERT needs the check. A redundant `user_id` on allocations is NOT recommended for MVP (write path is single and already row-locked; redundancy adds drift risk); revisit only if list queries need it |
+
+2. **Gamification tables — `user_id text` with `DEFAULT 'default-user'`** (single-user scoped):
+
+| Table | File | Unique constraint | Notes for multi-user — [PROPOSAL] |
+|---|---|---|---|
+| `user_progress` | `user_progress.ts` | `UNIQUE(user_id)` | already user-keyed; becomes the per-user profile row. Holds onboarding state (`onboarding_completed`) — remains one row per user |
+| `daily_missions` | `daily_missions.ts` | `UNIQUE(user_id, date)` | already user-scoped and correctly keyed |
+| `bonus_missions` | `bonus_missions.ts` | `UNIQUE(user_id, date)` | already user-scoped. `evidence_ref` stores `"transaction:<id>"` (builder/parser in `api-server/src/lib/evidence.ts`) — **cross-owner risk**: once transactions are owned, evidence creation must verify the referenced transaction belongs to the same user; `DELETE /transactions/:id` already nulls dangling refs atomically |
+| `earned_achievements` | `earned_achievements.ts` | `UNIQUE(user_id, badge_key)` | already user-scoped (includes Budget Guardian badge) |
+| `xp_events` | `xp_events.ts` | `UNIQUE(user_id, event_type, source_id)` | the idempotency backbone is ALREADY user-scoped — different users' identical `(event_type, source_id)` pairs cannot collide. No constraint change needed; only the writer must stop hardcoding `DEFAULT_USER` |
+
+**[VERIFIED] Critical type mismatch:** gamification `user_id` columns are `text` (holding `"default-user"`), while the approved architecture calls for an internal `uuid`. The migration must either (a) keep `text` and store the UUID as text, or (b) convert columns to `uuid`. **[PROPOSAL]**: keep `text` for gamification columns in Session A (store the UUID string; avoids five column-type rewrites and preserves `xp_events` history), convert to true `uuid` FKs in a later cleanup. **[OPEN]** for review.
+
+**Deletion behavior:** allocations cascade from transactions ([VERIFIED]). No other FK cascades exist. **[PROPOSAL]**: `users.id` FKs should be `ON DELETE RESTRICT` — never cascade-delete financial history from an identity operation; user removal is a status change (see A5).
+
+## A3. Route protection matrix
+
+**[VERIFIED]** Complete route inventory (all mounted under `/api`; every route is currently unauthenticated and publicly reachable). Target classification key: **P** = public, **A** = authenticated, **AO** = authenticated + resource-owner scoped.
+
+| Method & path | File | Writes financial state | Writes gamification state | Opens outer `db.transaction` | Client-supplied IDs | Target | Cross-user response |
+|---|---|---|---|---|---|---|---|
+| GET `/healthz` | `health.ts` | – | – | – | – | **P** (justified: liveness) | n/a |
+| GET `/accounts` | `accounts.ts` | – | – | – | – | **AO** (list-scoped) | filtered list |
+| POST `/accounts` | `accounts.ts` | yes | – | – | – | **AO** | n/a (insert owned) |
+| PATCH `/accounts/:id` | `accounts.ts` | yes | – | – | `id` | **AO** | 404 |
+| DELETE `/accounts/:id` | `accounts.ts` | yes | – | – | `id` | **AO** | 404 |
+| GET `/bills`, POST `/bills`, PATCH `/bills/:id`, DELETE `/bills/:id` | `bills.ts` | yes (writes) | – | – | `id` | **AO** | 404 |
+| PATCH `/bills/:id/pay` | `bills.ts` | yes | yes (XP, mission, bonus, achievements) | **yes** | `id` | **AO** | 404 |
+| GET `/budgets`, POST `/budgets`, PATCH `/budgets/:id`, DELETE `/budgets/:id` | `budgets.ts` | yes (writes) | – | – | `id` | **AO** | 404 |
+| POST `/budgets/reviewed` | `budgets.ts` | – | yes (mission, XP, Budget Guardian) | **yes** | – | **AO** | n/a |
+| GET `/transactions`, GET `/transactions/:id` | `transactions.ts` | – | – | – | `id` | **AO** | 404 |
+| POST `/transactions` | `transactions.ts` | yes | yes (full gamification chain + Guardian) | **yes** | `accountId` in body | **AO** (must verify accountId ownership) | 404 for foreign accountId |
+| PATCH `/transactions/:id` | `transactions.ts` | yes | – | – | `id` | **AO** | 404 |
+| DELETE `/transactions/:id` | `transactions.ts` | yes | yes (nulls bonus evidence refs) | **yes** | `id` | **AO** | 404 |
+| GET `/insights/summary`, `/insights/spending`, `/insights/trends`, `/insights/upcoming-bills` | `insights.ts` | – | – | – | – | **AO** (derived from caller's rows only) | filtered |
+| POST `/insights/viewed` | `insights.ts` | – | yes (mission, XP) | **yes** | – | **AO** | n/a |
+| GET `/gamification/progress`, `/missions/today`, `/achievements`, `/scorecard`, `/briefing` | `gamification.ts` | – | – (GETs are side-effect free — [VERIFIED], preserved invariant) | – | – | **AO** | filtered |
+| POST `/gamification/onboarding` | `gamification.ts` | – | yes (one-time profile) | – | – | **AO** | n/a |
+| POST `/gamification/onboarding/reset` | `gamification.ts` | – | yes | – | – | **AO** + remains dev/test-gated (403 in production) | n/a |
+
+Notes — all [VERIFIED]:
+- Only `/healthz` qualifies as public. No webhooks, no admin routes, no import/bulk endpoints, no allocation HTTP endpoint exists (allocations are created only via internal helper; if an endpoint is added later it is **AO** with the dual-parent invariant).
+- Every route that opens an outer transaction threads `tx` through `*InTx` helpers (`xp.ts`, `budget-guardian.ts`, `allocations.ts`); none of those helpers currently receives a `userId` argument — each hardcodes `DEFAULT_USER` internally (see A4).
+- Cross-user policy per the approved architecture: **404** for foreign-resource lookups (existence privacy); 403 reserved for owned-but-forbidden (currently only the production onboarding-reset gate).
+- **Do not assume GETs are safe**: `/insights/*` and `/gamification/briefing` aggregate the entire `transactions`/`bills` tables today — under multi-user they leak everything unless scoped.
+
+## A4. Default-user inventory
+
+**[VERIFIED]** — complete list of `default-user` references:
+
+| Location | Kind | Detail | Disposition — [PROPOSAL] |
+|---|---|---|---|
+| `artifacts/api-server/src/lib/xp.ts:11` | production runtime | `const DEFAULT_USER = "default-user"` used in ~18 query/insert sites (lines 206–535): `user_progress` reads/updates, `xp_events` inserts, `earned_achievements` inserts, `daily_missions`/`bonus_missions` queries | remove constant; every exported helper gains a required `userId` param (see A7). Silent fallback must not survive |
+| `artifacts/api-server/src/routes/gamification.ts:45` | production runtime | duplicate constant, used in ~11 sites (lines 139–452) incl. onboarding + reset | same — routes consume `req.authContext.userId` |
+| `lib/db/src/schema/{user_progress,daily_missions,bonus_missions,earned_achievements,xp_events}.ts` | schema default | `user_id text DEFAULT 'default-user'` | drop the column DEFAULT in Stage D — an ownerless insert must fail, not silently self-assign |
+| `lib/db/drizzle/0000_smart_kitty_pryde.sql` | migration | SQL-level defaults mirroring the schema | superseded by a new migration; historical file unchanged |
+| `artifacts/api-server/src/__tests__/*` | test-only | tests exercise the single-user API; `evidence-integrity.test.ts` already uses explicit per-test user IDs (e.g. `"evidence-test-a"`) for cross-user isolation checks | tests migrate to explicit `TEST_USER` fixture via centralized setup (A8); explicit seeded identities are acceptable |
+| `replit.md`, `docs/` | documentation | describes the limitation | update after implementation |
+| Frontend | — | **zero** default-user references — [VERIFIED] | no change needed for identity constants |
+
+Functions whose signatures must eventually change (all in `artifacts/api-server/src`, all currently zero-user-argument — [VERIFIED]): `getOrCreateProgress`, `readProgress`, `awardXpForEventInTx`, `grantAchievementIfNewInTx`, `completeMissionIfPendingInTx`, `completeBonusIfAssignedInTx`, mission read helpers in `xp.ts`; `evaluateBudgetGuardianInTx` and `derivedSpentByCategoryInTx` in `budget-guardian.ts`; `createAllocationInTx` in `allocations.ts` (must additionally verify dual-parent ownership). Pure functions needing NO user (correct as-is): `evaluateTransactionSemantics`, `missionForDate`, `bonusMissionTypeForDate`, `computeFingerprint`, evidence builder/parser.
+
+## A5. Internal user model — [PROPOSAL], repository-consistent, NOT implemented
+
+Repository conventions observed ([VERIFIED]): snake_case columns, `text` over varchar, `timestamp defaultNow()`, CHECK-constrained text instead of pg enums, serial PKs. The `users` table breaks the serial convention deliberately (approved architecture requires a UUID ownership key).
+
+```ts
+// PROPOSED — NOT IMPLEMENTED. lib/db/src/schema/users.ts
+export const users = pgTable(
+  "users",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),          // authoritative internal owner key
+    authProvider: text("auth_provider").notNull(),        // 'clerk' initially
+    authProviderSubject: text("auth_provider_subject"),   // Clerk userId; NULL only while status='migration_pending'
+    email: text("email"),                                 // nullable, informational; NEVER an ownership key
+    displayName: text("display_name"),
+    timezone: text("timezone"),                           // nullable placeholder (UTC-midnight limitation, next phase)
+    status: text("status").notNull().default("active"),   // CHECK: active | disabled | migration_pending
+    createdAt: timestamp("created_at").defaultNow().notNull(),
+    updatedAt: timestamp("updated_at").defaultNow().notNull(),
+  },
+  (t) => [
+    unique("users_provider_subject_unique").on(t.authProvider, t.authProviderSubject),
+    // partial index alternative if NULL subjects must not collide is unnecessary:
+    // Postgres UNIQUE treats NULLs as distinct, which is exactly right for migration_pending.
+  ],
+);
+```
+
+Key decisions (rationale in the approved architecture above; repository-specific notes here):
+- Internal UUID is the ownership FK everywhere; the Clerk subject appears ONLY in `users`. Provider swap = one-row update, zero financial-data migration. **[APPROVED]**
+- Email: nullable, non-unique, informational. Emails change and can be recycled; the provider subject is the identity key. **[APPROVED]**
+- Provisioning race: the `(auth_provider, auth_provider_subject)` UNIQUE constraint is the backstop — concurrent first logins race to `INSERT … ON CONFLICT DO NOTHING` then re-select. **[PROPOSAL]**
+- Provisioning policy for THIS repository: **controlled, not automatic**. Because a legacy portfolio exists, first sign-in must NOT auto-claim it. Bootstrap: a deployment secret (e.g. `BOOTSTRAP_OWNER_EMAIL` or better `BOOTSTRAP_OWNER_SUBJECT`) is compared against the verified Clerk identity; on match, the `migration_pending` user gets the subject attached and flips to `active`, one time. Non-matching sign-ins get fresh empty users (or a 403 "invite-only" gate — **[OPEN]**: is public sign-up wanted at MVP?). **[APPROVED direction; secret name PROPOSAL]**
+- Clerk account disabled/deleted → set `status='disabled'`; NEVER delete the internal user or financial records. Provider webhooks are deferred past MVP (disabled users are caught at session verification). **[PROPOSAL]**
+- Single provider mapping directly on `users` for MVP; a separate identity-link table only if multi-provider linking is ever needed. **[APPROVED]**
+- No passwords, no custom tokens, no orgs/roles/households. **[APPROVED]**
+
+## A6. Existing-data migration (repository-specific, staged) — [PROPOSAL]
+
+Order matters; each stage is a separate reviewable migration. **No migration files are created in this session.**
+
+1. **Stage A** — create `users`; insert the migrated owner row: `status='migration_pending'`, `auth_provider='clerk'`, subject NULL. The legacy key `"default-user"` is a text constant, not a UUID — it cannot be preserved as `users.id`; a fresh UUID is generated and recorded in migration output.
+2. **Stage B** — add **nullable** `user_id uuid REFERENCES users(id) ON DELETE RESTRICT` to `accounts`, `transactions`, `budgets`, `bills`. Gamification tables keep `text user_id` for now (A2 decision) — no column add needed there.
+3. **Stage C** — backfill:
+   - `UPDATE accounts/transactions/budgets/bills SET user_id = '<owner-uuid>' WHERE user_id IS NULL;`
+   - `UPDATE user_progress/daily_missions/bonus_missions/earned_achievements/xp_events SET user_id = '<owner-uuid>' WHERE user_id = 'default-user';`
+   - Emit per-table backfilled counts; verify zero NULL / zero `'default-user'` rows remain.
+4. **Stage C-verify** — owner-consistency checks (all must return 0 rows):
+   - allocations whose source and target transactions have different `user_id`;
+   - `bonus_missions.evidence_ref` parsing to a transaction id whose owner differs from the mission's owner (use `findOrphanedTransactionEvidenceRefs` in `api-server/src/lib/evidence.ts` as the parsing reference);
+   - `transactions.account_id` pointing at an account with a different owner.
+   - Single-owner backfill makes mismatches impossible unless data is already corrupt; run the checks anyway.
+5. **Stage D** — enforce: `SET NOT NULL` on the four financial `user_id` columns; drop `DEFAULT 'default-user'` from the five gamification columns; add indexes `transactions(user_id, date)`, `budgets(user_id, year, month)`, `bills(user_id, due_date)`, `accounts(user_id)`, `xp_events(user_id, created_at)`; **replace** `transactions_fingerprint_unique` with `UNIQUE(user_id, fingerprint) WHERE fingerprint IS NOT NULL` (the dedup 409 contract in `routes/transactions.ts` is unchanged in behavior, now per-user).
+6. **Stage E** — controlled bootstrap linking (runtime, not SQL): first verified Clerk sign-in matching the bootstrap secret attaches the subject and activates the owner (A5).
+
+Constraint review ([VERIFIED] full list): `xp_events` UNIQUE is already user-scoped (correct); `daily_missions`/`bonus_missions`/`earned_achievements`/`user_progress` UNIQUEs are already user-scoped (correct); `transactions_fingerprint_unique` is the ONLY global constraint that must become user-scoped; `transaction_allocations` CHECKs are user-agnostic (correct as row-level rules).
+
+Risks: cascade-delete via `users` (mitigated: RESTRICT); nullable ownership lingering (mitigated: Stage D is a hard gate for Session B); wrong-account claim of legacy portfolio (mitigated: bootstrap secret, never first-come-first-served); seeded dev fixtures in prod tables ([OPEN]: production DB contents cannot be inspected from this audit — run Stage C counts against production before Stage D). Rollback: Stages A–C are additive and reversible (drop column / delete rows); Stage D is reversible by dropping constraints; take a DB snapshot before Stage C and D.
+
+## A7. Authentication adapter & propagation design — [PROPOSAL]
+
+Integration points (exact, from the verified structure):
+- Adapter interface + `AuthenticatedRequestContext` type: new `artifacts/api-server/src/lib/auth.ts`. Context exactly `{ authProvider: "clerk"; providerSubject: string; userId: string }` — no extra fields needed for MVP; the Clerk session object is never exposed past the adapter.
+- Registration: in `app.ts`, after body parsing, before `app.use("/api", router)`. `/api/healthz` moves to (or is exempted on) a public mini-router; everything else behind `requireAuthenticatedUser`.
+- Resolution: once per request — verify Clerk session → look up `users` by `(provider, subject)` → attach context (`req.authContext`); missing internal user → controlled provisioning path (A5); `status='disabled'` → 403; no/invalid credentials → 401; provider outage → 503 with generic body (never a stack leak; the central error handler in `app.ts` already provides this shape).
+- Test adapter: `createApp({ auth })` dependency injection — production passes the Clerk adapter, tests pass `authenticatedAs(TEST_USER)` which stamps the context deterministically with NO network calls. This mirrors the existing in-process DI precedent (`setFailpointHandler` in `lib/failpoints.ts` — [VERIFIED]). Tests bypass identity *verification* only; all ownership filters run for real.
+- Frontend transport: same-origin through the shared proxy ([VERIFIED] — relative URLs via `custom-fetch.ts` base URL). Clerk's session cookie therefore travels automatically; the dormant `setAuthTokenGetter` remains for future mobile. The permissive `cors()` in `app.ts` must be tightened when credentials become meaningful. Webhooks, if ever added, live on a separate router with independent signature verification.
+
+Propagation map (route → chain, all [VERIFIED] call chains): every `*InTx` helper listed in A4 gains a required `userId: string` first-class argument; routes pass `req.authContext.userId`; every Drizzle query inside gains an `eq(<table>.userId, userId)` conjunct; inserts set `userId` explicitly. Authentication resolution happens in middleware — **before** any `db.transaction` opens — so the approved flow (verify → resolve → validate → single outer tx → scoped mutation → semantics → Guardian → XP/evidence → commit) maps 1:1 onto the existing structure. The single-outer-transaction architecture is currently intact across create/pay/reviewed/viewed/delete ([VERIFIED] via `atomic-rollback.test.ts` + route inspection); the only way auth work could break atomicity is by doing user lookup *inside* a route transaction or opening a second transaction in a helper — prohibited.
+
+Cross-user allocation invariant: enforce inside `createAllocationInTx` while both rows are locked: after `FOR UPDATE`, assert `source.userId === target.userId === userId`, else typed `AllocationError` mapping to 404.
+
+## A8. Test migration strategy — [PROPOSAL] (framework facts [VERIFIED])
+
+Facts: Vitest, `fileParallelism: false`, forks pool, scratch `lucent_vitest` DB built from checked-in migrations by `global-setup.ts`, native `fetch` against `app.listen(0)`, failpoint DI. 8 test files, 90 tests.
+
+Fixtures: `TEST_USER`, `USER_A`, `USER_B` — each `{ id: fixed UUID, authProvider: 'clerk', authProviderSubject: 'test-sub-…', email, status: 'active' }`, seeded in centralized setup; default app instance authenticated as `TEST_USER`.
+
+Per-file classification:
+- **Centralized-setup change only** (routes exercised via fetch; assertions unchanged): `atomic-rollback.test.ts`, `transaction-duplicates.test.ts`, `transaction-gating.test.ts`, `reset-gating.test.ts`.
+- **Fixture change required** (direct DB seeding must add owner columns): `budget-guardian.test.ts`, `evidence-integrity.test.ts` (its ad-hoc user strings become `USER_A`/`USER_B`).
+- **No change expected**: pure-evaluator portions of `transaction-semantics.test.ts`; its HTTP portions take the centralized setup. `global-setup.ts` gains fixture seeding.
+- **High regression risk**: none identified, provided the test adapter is DI-based and ownership filters stay on.
+
+New coverage required (est. ~40–60 new tests): 401 suite for every protected method family; list-isolation (accounts/transactions/budgets/bills/gamification reads); cross-user 404s for read/update/delete on each resource; cross-user allocation and evidence rejection; foreign `accountId` in POST /transactions; reward attribution (USER_A's action never credits USER_B); user-scoped fingerprint dedup (same fingerprint across two users succeeds; retry within one user still 409); Guardian evaluates only the caller's budgets/transactions; rollback + failpoints unchanged under auth; provisioning-race constraint test; migration verification queries.
+
+## A9. Frontend impact — [PROPOSAL] (structure facts [VERIFIED])
+
+Facts: entry `src/main.tsx` → `App.tsx`; providers: `QueryClientProvider`, `TooltipProvider`, wouter `Router` (base = `import.meta.env.BASE_URL`), `Toaster`; pages: accounts, bills, budgets, dashboard, insights, not-found, onboarding, progress, settings, transactions; API via generated hooks + `custom-fetch.ts`; no credentials logic anywhere today; no frontend default-user assumptions.
+
+Minimum future change set: wrap providers with `<ClerkProvider>` in `main.tsx`/`App.tsx`; add a sign-in page + signed-out gate around all existing routes (all 10 pages require auth; only the sign-in screen is public); sign-out control in `settings.tsx` (or layout); session-loading state before first render of protected routes; 401 interception in `custom-fetch.ts` → redirect to sign-in; `VITE_CLERK_PUBLISHABLE_KEY` env var; no financial-page redesign. Cookies ride same-origin — no Authorization-header work for web MVP.
+
+## A10. Implementation sessions — [PROPOSAL]
+
+- **Session A — user table + ownership migration.** Files: `lib/db/src/schema/users.ts` (new), edits to 4 financial schema files (+5 gamification files in Stage D), new migrations `0003+` (staged per A6), `global-setup.ts` + fixture module, backfill-verification script in `scripts/`. Tests: migration verification + fixture smoke. Checkpoint after Stage D verification passes on dev DB. Rollback: snapshot + additive-stage reversal. Excludes: Clerk middleware, frontend, route scoping, orgs/roles/chapters/timezone-beyond-nullable-column, refactors.
+- **Session B — backend auth + scoping.** Files: new `lib/auth.ts` (adapter, context, middleware), `app.ts` (createApp DI + registration), all 7 route files (ownership conjuncts + context consumption), `xp.ts`/`budget-guardian.ts`/`allocations.ts` (userId params + dual-parent check), removal of both `DEFAULT_USER` constants, OpenAPI spec 401/404 responses + codegen. Tests: full new-coverage suite from A8. Must preserve: outer-tx boundaries, rollback, failpoints, idempotency, evidence, Guardian, semantics — the existing 90 tests keep passing after authorized adaptation. Checkpoint: all green.
+- **Session C — frontend Clerk.** Files per A9 + `VITE_CLERK_PUBLISHABLE_KEY` + deployment config. Excludes redesigns. Checkpoint: signed-out users see only sign-in; signed-in flow works end-to-end.
+- **Session D — independent audit.** Checklist: every A3 row re-verified against implementation; grep gates (`DEFAULT_USER` = 0 production hits, no unscoped `db.select` on owned tables); DB verification queries from A6 Stage C-verify run against production; negative security tests executed; release blocked on ANY cross-user read/write, any ownerless row, or any unauthenticated non-public route.
+
+## A11. Acceptance criteria (measurable) — [PROPOSAL]
+
+Authentication: every non-`/healthz` route → 401 unauthenticated; Clerk verified only inside the adapter; routes consume only `req.authContext`; disabled users → 403. Identity: internal UUID is the only ownership FK; provider subject exists only in `users`; `UNIQUE(auth_provider, auth_provider_subject)` enforced; email never an ownership key. Ownership: zero NULL owners on required columns; every owned query carries the user conjunct; cross-user read/update/delete/allocate/evidence/reward/Guardian all impossible (tested); no client-supplied user ID trusted; zero production `DEFAULT_USER` references. Migration: per A6 with recorded counts and zero-orphan verification; fingerprint uniqueness user-scoped; xp idempotency user-scoped (already is). Atomicity: single outer transaction preserved; auth resolution precedes it; same userId across every mutation within it; all 90 existing tests pass post-adaptation; failpoint suite intact. Frontend: signed-out lockout, loading state, 401 handling, no default-user assumptions. Hygiene: no prompt artifacts, no unrelated file changes, per-session clean checkpoints, nothing described as implemented until it is.
+
+## A12. Open questions and unverifiable assumptions
+
+- **[OPEN]** Is public self-service sign-up desired at MVP, or invite-only single-owner? Determines the non-bootstrap provisioning path (A5).
+- **[OPEN]** Gamification `user_id` columns: keep `text` (recommended for Session A) or convert to `uuid` immediately?
+- **[OPEN]** `budgets` lacks any `(user, category, month, year)` uniqueness today — pre-existing duplicate risk; fix alongside ownership or defer?
+- **[OPEN]** Production DB contents could not be inspected in this audit; Stage C/D verification must run against production data before constraints tighten.
+- **[OPEN]** Clerk plan/feature availability (session cookie behavior behind the Replit proxy) is assumed per Clerk's standard same-origin cookie model; verify in Session C.
+- **Assumption (inferred, not verified):** no out-of-band clients exist besides the bundled frontend; if any external script hits the API, Session B's 401 wall breaks it by design.
+
+*End of repository-specific audit. Nothing above the divider was modified; nothing in this section is implemented.*
