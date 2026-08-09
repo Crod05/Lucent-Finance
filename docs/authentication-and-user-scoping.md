@@ -1485,3 +1485,45 @@ Everything in this section IS implemented and verified. Sessions B–D remain pr
 - Fingerprint uniqueness remains **global** (documented gate in `transactions.ts`).
 - `DEFAULT_USER` constants untouched; runtime behavior unchanged.
 - **Gamification ownership migration deferred to Session B**, where it must happen atomically with: removal of both `DEFAULT_USER` constants, propagation of the authenticated internal userId, conversion of gamification `user_id` from text to uuid with FKs to `users`, updates to every gamification reader/writer, and verification that all existing history remains visible through the migrated owner. Until then gamification data remains on `'default-user'` so current behavior is preserved. No temporary compatibility fallback, duplicate rows, or second default owner were introduced.
+
+## Session B-Alpha implementation report (implemented 2026-08-09)
+
+**Scope:** authentication foundation only. No ownership cutover, no route protection activation, no schema changes, no gamification migration. `DEFAULT_USER` untouched. Production runtime behavior is UNCHANGED (no auth middleware is mounted by default).
+
+### Clerk compatibility verification
+
+- Installed Express version: **5.2.1** (`artifacts/api-server`).
+- Selected package: **`@clerk/express` 2.1.52** (added to `artifacts/api-server` dependencies).
+- Peer dependencies: `{ express: '^4.17.0 || ^5.0.0' }` — explicitly supports Express 5. Engines: `{ node: '>=20.9.0' }` (repo runs Node 24).
+- Smoke test: `clerkMiddleware` and `getAuth` compile against the current Express 5 app/request types (`src/lib/auth/clerk-adapter.ts`; full `pnpm run typecheck` + esbuild build pass). `requireAuth()` is NOT used anywhere (test-enforced on the import line).
+- No real Clerk network credentials are required or used; Clerk tenant provisioning is deferred to B-Beta activation.
+
+### Implemented modules (all under `artifacts/api-server/src/lib/auth/`)
+
+- **`context.ts` — AuthContext contract**: `Readonly<{ userId; authProvider: "clerk"; providerSubject; sessionId }>` where `userId` = internal `users.id` UUID (authoritative ownership), `providerSubject` = Clerk user id (identity resolution only), `sessionId` = diagnostics only. Stored under a Symbol key on the request; `getAuthContext(req)` fails loudly if the middleware chain didn't run; `setAuthContext` is middleware-only. Email/display-name/org identities are explicitly excluded.
+- **`provider.ts` — provider boundary**: `VerifiedProviderIdentity` + `AuthProviderAdapter.verifyRequestIdentity(req)`. Only adapters may know provider-specific request state.
+- **`clerk-adapter.ts` — Clerk implementation**: the ONLY file importing `@clerk/express` (test-enforced across `src/`). Uses `getAuth(req)`; exports `clerkVerificationMiddleware()` (wraps `clerkMiddleware()`) for B-Beta mounting.
+- **`resolver.ts` — internal user resolution**: lookup by `(auth_provider='clerk', auth_provider_subject)` using the Session A unique constraint. Status handling: `active` → AuthContext; `disabled` → failure `account_disabled` (403); `migration_pending` → failure `account_migration_pending` (403, never treated as active). Race-safe provisioning: `INSERT ... ON CONFLICT (auth_provider, auth_provider_subject) DO NOTHING RETURNING`, deterministic reread on conflict — the DB unique constraint is the concurrency authority. Email is never a provisioning key; new users get no legacy data.
+- **Controlled legacy claim** (`claimLegacyOwner`): conditional single-statement UPDATE on the fixed legacy UUID `00000000-0000-4000-8000-000000000001` requiring `status='migration_pending' AND auth_provider_subject IS NULL`, exactly one affected row. Only the subject configured in `LUCENT_LEGACY_OWNER_CLERK_SUBJECT` may trigger it. No first-user claim, no email matching. If the claim affects zero rows and no row exists for the subject, resolution fails closed (`legacy_claim_failed`) — a fresh account is never silently provisioned for the designated legacy subject.
+- **Missing env behavior** (`LUCENT_LEGACY_OWNER_CLERK_SUBJECT` absent or empty): the API still starts; auth stays functional; the legacy portfolio is simply unclaimable (fail closed); a structured startup warning is logged in `src/index.ts` ("Legacy owner Clerk subject is not configured. Existing migrated Lucent portfolio cannot be claimed."). No secrets logged. `GET /api/healthz` unaffected. Test-proven.
+- **`middleware.ts` — `requireUser(adapter, opts)`**: verifies identity via the adapter (verification errors → treated as unauthenticated, no detail leaks), resolves the Lucent user, attaches AuthContext. Error contract: 401 `{"error":"Authentication required"}` for no identity; 403 `{"error":"Account unavailable"}` for disabled/migration_pending/claim-failed. The ONLY public exception is `GET /healthz` (as seen by the `/api`-mounted router). The cross-user 404 matrix is deferred to B-Gamma.
+- **`test-adapter.ts` — deterministic test adapter**: `actAs(subject)` / `actAsUnauthenticated()`. Replaces external identity verification ONLY; the real resolver, status rules, and future ownership filters always execute. No Clerk network calls in any test.
+
+### Application composition changes
+
+`src/app.ts` was refactored into `createApp({ authProvider?, legacyOwnerSubject? })`. With no options (the current production default in `src/index.ts` via the unchanged `export default`), composition is byte-for-byte behavior-identical to Session A: no auth middleware mounted. When an `authProvider` is supplied, `requireUser` is mounted on `/api` ahead of the router. **B-Beta activation point (documented in `app.ts`)**: mount `clerkVerificationMiddleware()` after the body parsers and pass the Clerk adapter to `createApp` — no route-handler rewrites needed.
+
+### Known orphaned evidence — verification only (B-Alpha)
+
+Dev-DB state verified 2026-08-09: `bonus_missions` id=2 is `user_id='default-user'`, `date=2026-07-12`, `slot='bonus'`, `mission_type='log_transaction'`, `xp_reward=15`, `status='completed'`, `completed_at=2026-07-12 19:51:13+00`, `evidence_ref='transaction:29'`; `SELECT count(*) FROM transactions WHERE id=29` → **0** (orphan confirmed). NOT modified in B-Alpha. B-Beta must apply the preconditioned repair (set `evidence_ref=NULL` only, preserve everything else) and ABORT its migration if the row state differs from the above.
+
+### Tests
+
+New `src/__tests__/auth-foundation.test.ts` (20 tests): test-adapter USER_A/USER_B/unauthenticated; resolver active/disabled/migration_pending; fresh provisioning with zero attached legacy data; concurrent provisioning race (one row, same UUID); configured-subject legacy claim (row → active, exactly-once); already-claimed row rejects further claims; different subject cannot claim (legacy row untouched); missing AND empty env var prevent claiming; middleware 401/403 contract; healthz pass-through; loud `getAuthContext` failure; `@clerk/express` import isolation; no `requireAuth()` import. Full suite: **126/126 pass** (106 pre-existing + 20 new; no existing assertion weakened, no test deleted/skipped). Typecheck and api-server build pass.
+
+### Deferred
+
+- **To B-Beta (atomic)**: gamification text→UUID ownership migration; `DEFAULT_USER` removal; orphan-evidence preconditioned repair; route protection activation (mounting Clerk verification + `requireUser` in production); complete user query scoping; `userId` propagation through production helpers; cross-owner relationship enforcement; Clerk tenant/key provisioning.
+- **To B-Gamma**: financial `user_id NOT NULL`; user-scoped fingerprint constraint replacement; adversarial two-user isolation suite; full regression/security audit.
+
+Route ownership enforcement is NOT complete. Session B is NOT complete.
