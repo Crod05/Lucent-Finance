@@ -6,6 +6,7 @@ import { useGetProgress } from "@workspace/api-client-react";
 import { Spinner } from "@/components/ui/spinner";
 import NotFound from "@/pages/not-found";
 import { Layout } from "@/components/layout";
+import { ClerkSessionBoundary } from "@/components/auth/session-boundary";
 
 // Pages
 import Dashboard from "@/pages/dashboard";
@@ -67,9 +68,11 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <TooltipProvider>
-        <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
-          <Gate />
-        </WouterRouter>
+        <ClerkSessionBoundary>
+          <WouterRouter base={import.meta.env.BASE_URL.replace(/\/$/, "")}>
+            <Gate />
+          </WouterRouter>
+        </ClerkSessionBoundary>
         <Toaster />
       </TooltipProvider>
     </QueryClientProvider>

@@ -7,6 +7,7 @@ export type ErrorType<T = unknown> = ApiError<T>;
 export type BodyType<T> = T;
 
 export type AuthTokenGetter = () => Promise<string | null> | string | null;
+export type UnauthorizedHandler = () => Promise<void> | void;
 
 const NO_BODY_STATUS = new Set([204, 205, 304]);
 const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
@@ -17,6 +18,7 @@ const DEFAULT_JSON_ACCEPT = "application/json, application/problem+json";
 
 let _baseUrl: string | null = null;
 let _authTokenGetter: AuthTokenGetter | null = null;
+let _unauthorizedHandler: UnauthorizedHandler | null = null;
 
 /**
  * Set a base URL that is prepended to every relative request URL
@@ -34,14 +36,25 @@ export function setBaseUrl(url: string | null): void {
  * the getter is invoked; when it returns a non-null string, an
  * `Authorization: Bearer <token>` header is attached to the request.
  *
- * Useful for Expo bundles making token-gated API calls.
+ * Useful for native clients and browser applications whose API contract
+ * intentionally requires bearer tokens.
  * Pass `null` to clear the getter.
  *
- * NOTE: This function should never be used in web applications where session
- * token cookies are automatically associated with API calls by the browser.
+ * Browser applications using cookie-backed sessions should leave this unset.
  */
 export function setAuthTokenGetter(getter: AuthTokenGetter | null): void {
   _authTokenGetter = getter;
+}
+
+/**
+ * Register a callback for unauthorized responses. Applications can use this
+ * to clear user-scoped state and return to their authentication boundary.
+ * Pass `null` to clear the callback.
+ */
+export function setUnauthorizedHandler(
+  handler: UnauthorizedHandler | null,
+): void {
+  _unauthorizedHandler = handler;
 }
 
 function isRequest(input: RequestInfo | URL): input is Request {
@@ -363,6 +376,10 @@ export async function customFetch<T = unknown>(
   const response = await fetch(input, { ...init, method, headers });
 
   if (!response.ok) {
+    if (response.status === 401 && _unauthorizedHandler) {
+      await _unauthorizedHandler();
+    }
+
     const errorData = await parseErrorBody(response, method);
     throw new ApiError(response, errorData, requestInfo);
   }

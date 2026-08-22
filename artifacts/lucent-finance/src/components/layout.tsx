@@ -7,9 +7,11 @@ import {
   Landmark, 
   PieChart, 
   Settings,
-  Trophy
+  Trophy,
+  LogOut
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { useLucentSignOut } from "@/components/auth/session-boundary";
 
 const navigation = [
   { name: "Dashboard", href: "/", icon: LayoutDashboard },
@@ -24,6 +26,7 @@ const navigation = [
 
 export function Layout({ children }: { children: React.ReactNode }) {
   const [location] = useLocation();
+  const signOut = useLucentSignOut();
 
   return (
     <div className="flex min-h-screen bg-background text-foreground">
@@ -64,6 +67,16 @@ export function Layout({ children }: { children: React.ReactNode }) {
             );
           })}
         </nav>
+        <div className="border-t border-sidebar-border p-4">
+          <button
+            type="button"
+            onClick={signOut}
+            className="flex w-full items-center rounded-md px-3 py-2.5 text-sm font-medium text-sidebar-foreground transition-colors hover:bg-sidebar-accent/50 hover:text-sidebar-accent-foreground"
+          >
+            <LogOut className="mr-3 h-5 w-5" aria-hidden="true" />
+            Sign out
+          </button>
+        </div>
       </div>
 
       {/* Main Content */}
