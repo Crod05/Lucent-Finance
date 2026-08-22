@@ -47,3 +47,6 @@ Thumbs.db
 # Replit
 .cache/
 .local/
+
+# Replit/ChatGPT pasted instruction artifacts — never commit
+attached_assets/Pasted-*.txt
